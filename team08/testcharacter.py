@@ -161,15 +161,32 @@ class TestCharacter(CharacterEntity):
                     if not wrld.wall_at(x, y) and (x == bomb[0] or y == bomb[1]):
                         p[y][x] -= 2
 
-
-        m = next(iter(wrld.monsters.values()))[0]
+        n = self.find_monster(wrld)
+        m = wrld.monsters_at(n[0], n[1])[0]
         p[m.y][m.x] = -100
         mMoves = self.get_pos_moves(m, wrld)
         for move in mMoves:
             mx = m.x + move[0]
             my = m.y + move[1]
-            if 0 <= mx and mx < wrld.width() and 0 <= my and my < wrld.height():
-                p[my][mx] = -100
+            if 0 <= mx and mx < wrld.width() and 0 <= my and my < wrld.height() and p[my][mx] != -100:
+                p[my][mx] = -75
+
+            mMoves2 = self.get_neighbors_8(wrld, (mx, my))
+            for move2 in mMoves2:
+                mx2 = move2[0]
+                my2 = move2[1]
+                
+                if (0 <= mx2 < wrld.width() and 0 <= my2 < wrld.height()) and p[my2][mx2] not in (-100, -75):
+                    p[my2][mx2] = -20
+
+                mMoves3 = self.get_neighbors_8(wrld, (mx2, my2))
+                for move3 in mMoves3:
+                    mx3 = move3[0]
+                    my3 = move3[1]
+
+                    if (0 <= mx3 < wrld.width() and 0 <= my3 < wrld.height()) and p[my3][mx3] not in (-100, -75, -20):
+                        p[my3][mx3] = -5
+            
         return p
 
 
@@ -245,8 +262,6 @@ class TestCharacter(CharacterEntity):
         exit = self.find_exit(wrld)
         path = self.a_star(wrld, (self.x, self.y), exit)
         r = self.genSpaceReward(wrld, path)
-        for l in r:
-            print(l)
 
         p = self.policyIteration(wrld, r, 0.9)
 

@@ -21,10 +21,10 @@ g.add_monster(StupidMonster("stupid", # name
 ))
 
 # TODO Add your character
-g.add_character(TestCharacter("me", # name
+g.add_character(TestCharacter("jebediah", # name
                               "C",  # avatar
                               0, 0  # position
 ))
 
 # Run!
-g.go()
+g.go(1)

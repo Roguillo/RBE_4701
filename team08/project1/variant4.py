@@ -22,8 +22,8 @@ g.add_monster(SelfPreservingMonster("aggressive", # name
 ))
 
 # TODO Add your character
-g.add_character(TestCharacter("me", # name
-                              "C",  # avatar
+g.add_character(TestCharacter("wilson", # name
+                              "W",  # avatar
                               0, 0  # position
 ))
 

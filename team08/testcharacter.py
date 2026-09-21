@@ -25,19 +25,6 @@ class TestCharacter(CharacterEntity):
 
     ##
     # wrld: the world
-    #
-    # >>> returns list of exit cells found
-    def find_exits(self, wrld):
-        exits = []
-
-        for x in range(wrld.width()):
-            for y in range(wrld.height()):
-                if(wrld.exit_at(x, y)): exits.append((x, y))
-
-        return(exits)
-
-    ##
-    # wrld: the world
     # cell: cell to look around for viable neighbors
     #
     # >>> returns list of valid cells to go to
@@ -60,9 +47,9 @@ class TestCharacter(CharacterEntity):
                             (cell[1] + ny <  wrld.height())
 
                         # Is this cell safe?
-                        ) and (
-                            wrld.exit_at (cell[0] + nx, cell[1] + ny) or
-                            wrld.empty_at(cell[0] + nx, cell[1] + ny)
+                        ) and not(
+                            wrld.wall_at(cell[0] + nx, cell[1] + ny)
+
                         ) and not(
                             (nx == 0) and
                             (ny == 0)
@@ -130,7 +117,7 @@ class TestCharacter(CharacterEntity):
 #--- Expectimax -----------------------------------------------------------------------------------------------------------------#
 
     # max depth/amount of expectimax layers to explore (plies)
-    expectimax_depth = 5
+    expectimax_depth = 3
 
     ##
     # wrld: the world
@@ -153,14 +140,16 @@ class TestCharacter(CharacterEntity):
             )
 
     def utility(self, exit, character_pos, monster_pos, depth):
-        if(character_pos == exit)                 : return( 100)
-        if(character_pos == monster_pos)          : return(-100)
+        if(character_pos == exit)                              : return( 100 - depth)
+        if(self.euclid_dist(character_pos, monster_pos) < 2.83): return(-100)
+
+        k = 1.0
 
         if(depth         >= self.expectimax_depth):
             exit_dist    = self.euclid_dist(character_pos, exit)
             monster_dist = self.euclid_dist(character_pos, monster_pos)
 
-            return(-(1 * exit_dist) + (0.5 * monster_dist))
+            return(-(k * exit_dist) + ((1 - k) * monster_dist))
 
         return(0)
     
@@ -208,12 +197,12 @@ class TestCharacter(CharacterEntity):
 
         for action in monster_actions:
             (hypth_wrld, new_character_pos, new_monster_pos)  = self.result(wrld, monster_pos, action, False)
-            val                                              += prob * self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1)
+            val                                              += prob * self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth)
 
         return(val)
 
     def expectimax(self, wrld):
-        exit          = self.find_exits(wrld)[0]
+        exit          = wrld.exitcell
         character_pos = (self.x, self.y)
         monster_pos   = self.find_monsters(wrld)[0]
         best_action   = (0, 0)

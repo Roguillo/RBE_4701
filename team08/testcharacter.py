@@ -28,7 +28,7 @@ class TestCharacter(CharacterEntity):
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
 
-        targetMstrDist = 3
+        targetMstrDist = 4
         mstrDistWeight = 5
 
         # Iterate through eight cells surrounding player
@@ -40,10 +40,12 @@ class TestCharacter(CharacterEntity):
         for cell in cells:
             score = len(self.a_star(wrld, cell, exit))
 
-            cellMstrDist = self.distToMonster(wrld, cell, mstr)
+            cellMstrDist = self.euclidean_distance(cell, mstr)
 
             if cellMstrDist <= targetMstrDist:
                 score += (targetMstrDist - cellMstrDist + 1) * mstrDistWeight
+
+            print(cell, score, cellMstrDist)
 
             if score < minScore:
                 minScore = score
@@ -92,9 +94,6 @@ class TestCharacter(CharacterEntity):
             return True
         
         return False
-
-    def distToMonster(self, wrld, char, mstr):
-        return len(self.a_star(wrld, char, mstr))
 
 
     # ======== A* Calculations ========

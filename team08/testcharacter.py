@@ -1,9 +1,6 @@
 import math
-import random
 import sys
 from queue import PriorityQueue
-
-import numpy as np
 
 sys.path.insert(0, '../bomberman')
 
@@ -11,7 +8,20 @@ from entity import CharacterEntity  # type: ignore
 
 
 class TestCharacter(CharacterEntity):
-    max_depth = 2
+#--- General-Purpose ------------------------------------------------------------------------------------------------------------#
+    
+    ##
+    # cell_a: first cell
+    # cell_b: second cell
+    #
+    # >>> returns straight-line distance between given cells
+    def euclid_dist(self, cell_a, cell_b):
+        return(
+            math.sqrt(
+                (cell_a[0] - cell_b[0])**2 + 
+                (cell_a[1] - cell_b[1])**2
+                )
+            )
 
     ##
     # wrld: the world
@@ -25,19 +35,6 @@ class TestCharacter(CharacterEntity):
                 if(wrld.exit_at(x, y)): exits.append((x, y))
 
         return(exits)
-
-    ##
-    # wrld: the world
-    #
-    # >>> returns list of exit cells found
-    def find_monsters(self, wrld):
-        monsters = []
-
-        for x in range(wrld.width()):
-            for y in range(wrld.height()):
-                if(wrld.monsters_at(x, y)): monsters.append((x, y))
-
-        return(monsters)
 
     ##
     # wrld: the world
@@ -66,23 +63,15 @@ class TestCharacter(CharacterEntity):
                         ) and (
                             wrld.exit_at (cell[0] + nx, cell[1] + ny) or
                             wrld.empty_at(cell[0] + nx, cell[1] + ny)
+                        ) and not(
+                            (nx == 0) and
+                            (ny == 0)
                         )
                         ):
                             cells.append((cell[0] + nx, cell[1] + ny))
         return(cells)
 
-    ##
-    # cell_a: first cell
-    # cell_b: second cell
-    #
-    # >>> returns straight-line distance between given cells
-    def euclid_dist(self, cell_a, cell_b):
-        return(
-            math.sqrt(
-                (cell_a[0] - cell_b[0])**2 + 
-                (cell_a[1] - cell_b[1])**2
-                )
-            )
+#--- A* -------------------------------------------------------------------------------------------------------------------------#
 
     ##
     # cell_a: first cell
@@ -102,13 +91,10 @@ class TestCharacter(CharacterEntity):
     # wrld: the world
     #
     # >>> returns list of cells composing the most optimal path to the exit
-    def a_star(self, wrld):
+    def a_star(self, wrld, start, goal):
         frontier    = PriorityQueue()
         came_from   = {}
         cost_so_far = {}
-
-        start = (self.x, self.y)
-        goal  = self.find_exits(wrld)[0]
 
         frontier.put((0, start))
         came_from[start]   = None
@@ -140,75 +126,110 @@ class TestCharacter(CharacterEntity):
 
         path.reverse()
         return(path)
-    
-    def result(self, wrld, action, who, depth):
-        hypth_wrld = wrld.from_world(wrld)
 
-        if(who == True):
-            character = hypth_wrld.me(self)
-            character.move(action[0], action[1])
+#--- Expectimax -----------------------------------------------------------------------------------------------------------------#
 
-            return(hypth_wrld.next()[0], depth)
+    # max depth/amount of expectimax layers to explore (plies)
+    expectimax_depth = 5
 
-        else:
-            monster_pos     = self.find_monsters(hypth_wrld)[0]
-            monster         = hypth_wrld.monsters_at(monster_pos[0], monster_pos[1])[0]
-            monster.move(action[0] - monster_pos[0], action[1] - monster_pos[1])
+    ##
+    # wrld: the world
+    #
+    # >>> returns list of exit cells found
+    def find_monsters(self, wrld):
+        monsters = []
 
-            return(hypth_wrld.next()[0], depth + 1)
+        for x in range(wrld.width()):
+            for y in range(wrld.height()):
+                if(wrld.monsters_at(x, y)): monsters.append((x, y))
 
-    def terminal(self, wrld, character_pos, monster_pos, depth):
+        return(monsters)
+
+    def terminal(self, exit, character_pos, monster_pos, depth):
         return(
-            (wrld.exit_at(character_pos[0], character_pos[1]))     or
-            (character_pos == monster_pos)    or
-            (depth         >= self.max_depth)
+            (character_pos == exit)                  or
+            (character_pos == monster_pos)           or
+            (depth         >= self.expectimax_depth)
             )
 
-    def utility(self, wrld, character_pos, monster_pos, depth):
-        if(character_pos == monster_pos): return(-25)
-        if(wrld.exit_at(character_pos[0], character_pos[1])) : return( 20)
-        if(depth >= self.max_depth)     : return(-self.euclid_dist(character_pos, self.find_exits(wrld)[0]))
+    def utility(self, exit, character_pos, monster_pos, depth):
+        if(character_pos == exit)                 : return( 100)
+        if(character_pos == monster_pos)          : return(-100)
+
+        if(depth         >= self.expectimax_depth):
+            exit_dist    = self.euclid_dist(character_pos, exit)
+            monster_dist = self.euclid_dist(character_pos, monster_pos)
+
+            return(-(1 * exit_dist) + (0.5 * monster_dist))
 
         return(0)
+    
+    def result(self, wrld, monster_pos, action, who):
+        hypth_wrld    = wrld.from_world(wrld)
+        character     = hypth_wrld.me(self)
+        character_pos = (character.x, character.y)
+        monster       = hypth_wrld.monsters_at(monster_pos[0], monster_pos[1])[0]
 
-    def max_node(self, wrld, character_pos, monster_pos, depth):
-        if(self.terminal(wrld, character_pos, monster_pos, depth)):
-            return(self.utility(wrld, character_pos, monster_pos, depth))
+        if(who):
+            character.move(action[0] - character_pos[0], action[1] - character_pos[1])
+            hypth_wrld.update_character_move(character, True)
+            new_character_pos = (character.x, character.y)
+            new_monster_pos   = monster_pos
+
+        else   :
+            monster.move(  action[0] - monster_pos[0]  , action[1] - monster_pos[1])
+            hypth_wrld.update_monster_move(monster, True)
+            new_character_pos = character_pos
+            new_monster_pos   = (monster.x, monster.y)
+
+        return(hypth_wrld, new_character_pos, new_monster_pos)
+
+    def max_node(self, wrld, exit, character_pos, monster_pos, depth):
+        if(self.terminal(exit, character_pos, monster_pos, depth)):
+            return(self.utility(exit, character_pos, monster_pos, depth))
         
         val = float("-inf")
 
         for action in self.get_neighbors_8(wrld, character_pos):
-            val = max(val, self.chance_node(wrld, action, monster_pos, depth))
+            (hypth_wrld, new_character_pos, new_monster_pos) = self.result(wrld, monster_pos, action, True)
+            val                                              = max(val, self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1))
 
         return(val)
 
-    def chance_node(self, wrld, character_pos, monster_pos, depth):
-        if(self.terminal(wrld, character_pos, monster_pos, depth)):
-            return(self.utility(wrld, character_pos, monster_pos, depth))
+    def chance_node(self, wrld, exit, character_pos, monster_pos, depth):
+        if(self.terminal(exit, character_pos, monster_pos, depth)):
+            return(self.utility(exit, character_pos, monster_pos, depth))
 
         monster_actions = self.get_neighbors_8(wrld, monster_pos)
         val             = 0
-        prob            = 1.0 / len(monster_actions)
+
+        if(not(monster_actions)): prob = 0
+        else                    : prob = 1.0 / len(monster_actions)
 
         for action in monster_actions:
-            val += prob * self.max_node(wrld, character_pos, action, depth + 1)
+            (hypth_wrld, new_character_pos, new_monster_pos)  = self.result(wrld, monster_pos, action, False)
+            val                                              += prob * self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1)
 
         return(val)
 
     def expectimax(self, wrld):
-        character               = wrld.me(self)
-        character_pos           = (character.x, character.y)
-        monster_pos             = self.find_monsters(wrld)[0]
-        (best_action, best_val) = ((0, 0), float("-inf"))
+        exit          = self.find_exits(wrld)[0]
+        character_pos = (self.x, self.y)
+        monster_pos   = self.find_monsters(wrld)[0]
+        best_action   = (0, 0)
+        best_val      = float("-inf")
 
         for action in self.get_neighbors_8(wrld, character_pos):
-            val = self.chance_node(wrld, action, monster_pos, 0)
+            (hypth_wrld, new_character_pos, new_monster_pos) = self.result(wrld, monster_pos, action, True)
+            val                                              = self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, 1)
 
-            if(val) > best_val:
-                best_val = val
+            if(val > best_val):
+                best_val    = val
                 best_action = (action[0] - character_pos[0], action[1] - character_pos[1])
 
         return(best_action)
+
+#--- Main Loop ------------------------------------------------------------------------------------------------------------------#
 
     ##
     # wrld: the world

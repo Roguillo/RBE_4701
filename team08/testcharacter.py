@@ -4,7 +4,7 @@ sys.path.insert(0, '../bomberman')
 # Import necessary stuff
 from entity import CharacterEntity
 from colorama import Fore, Back
-import math
+from math import sqrt
 from queue import PriorityQueue
 
 class TestCharacter(CharacterEntity):
@@ -24,32 +24,71 @@ class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
 
+
         char = self.findChar(wrld)
+        print(char)
         mstr = self.findMstr(wrld)
+        print(mstr)
         exit = wrld.exitcell
+        print(exit)
 
-        targetMstrDist = 4
-        mstrDistWeight = 5
+        path = self.aStar(wrld, char, mstr)
 
-        # Iterate through eight cells surrounding player
-        # Give each cell a score as a sum of dist to goal
-        # and distance to monster
-        cells = self.get_neighbors_8(wrld, char)
-        minScore = 999
-        bestMove = None
-        for cell in cells:
-            score = len(self.a_star(wrld, cell, exit))
+        print(len(path)-1)
 
-            cellMstrDist = self.euclidean_distance(cell, mstr)
+        # minimaxDepth = 2
+        # minimaxEnableDist = 5
 
-            if cellMstrDist <= targetMstrDist:
-                score += (targetMstrDist - cellMstrDist + 1) * mstrDistWeight
+        # char = self.findChar(wrld)
+        # print(char)
+        # mstr = self.findMstr(wrld)
+        # print(mstr)
+        # exit = wrld.exitcell
+        # print(exit)
 
-            print(cell, score, cellMstrDist)
+        # result = self.a_star(wrld, (0, 0), mstr)
+        # print(result)
+        # charMstrDist = len(result) - 1
 
-            if score < minScore:
-                minScore = score
-                bestMove = cell
+        # if (charMstrDist <= minimaxEnableDist):
+        #     print("Close!")
+        #     print(charMstrDist)
+        # else:
+        #     print("Far!")
+        #     print(charMstrDist)
+
+
+
+
+
+
+
+
+        
+        
+
+        # targetMstrDist = 4
+        # mstrDistWeight = 5
+
+        # # Iterate through eight cells surrounding player
+        # # Give each cell a score as a sum of dist to goal
+        # # and distance to monster
+        # cells = self.get_neighbors_8(wrld, char)
+        # minScore = 999
+        # bestMove = None
+        # for cell in cells:
+        #     score = len(self.a_star(wrld, cell, exit))
+
+        #     cellMstrDist = self.euclidean_distance(cell, mstr)
+
+        #     if cellMstrDist <= targetMstrDist:
+        #         score += (targetMstrDist - cellMstrDist + 1) * mstrDistWeight
+
+        #     print(cell, score, cellMstrDist)
+
+        #     if score < minScore:
+        #         minScore = score
+        #         bestMove = cell
 
 
 
@@ -59,10 +98,10 @@ class TestCharacter(CharacterEntity):
         # next = path.pop()
         # next = path.pop()
 
-        (cx, cy) = char
-        (nx, ny) = bestMove
-        (x, y) = (nx-cx, ny-cy)
-        self.move(x, y)
+        # (cx, cy) = char
+        # (nx, ny) = bestMove
+        # (x, y) = (nx-cx, ny-cy)
+        # self.move(x, y)
 
 
     def findChar(self, wrld):
@@ -96,81 +135,89 @@ class TestCharacter(CharacterEntity):
         return False
 
 
+    # ======== Minimax ========
+    def minimax(self, wrld, depth):
+        pass
+
+
     # ======== A* Calculations ========
 
-    def get_neighbors_8(self, wrld, cell):
-        # List of empty cells
+    def getNeighbors8(self, wrld, cell):
+
+        width = wrld.width()
+        height = wrld.height()
+
+        # Empty list to store cells
         cells = []
 
-        # Go through neighboring cells
+        # Go through neighboring cells in x-direction
         for nx in [-1, 0, 1]:
+            x = cell[0] + nx
+
             # Avoid out-of-bounds access
-            if (
-                (cell[0] + nx >= 0)           and
-                (cell[0] + nx <  wrld.width())
-                ):
-                for ny in [-1, 0, 1]:
-                    # Avoid out-of-bounds access
-                    if (
-                        (
-                            (cell[1] + ny >= 0)             and
-                            (cell[1] + ny <  wrld.height())
+            if x < 0 or x > width-1: continue
 
-                        # Is this cell safe?
-                        ) and (
-                             wrld.exit_at (cell[0] + nx, cell[1] + ny) or
-                             wrld.empty_at(cell[0] + nx, cell[1] + ny)
-                        )
-                        ):
-                            cells.append((cell[0] + nx, cell[1] + ny))
-        return(cells)
+            # Go through neighboring cells in y-direction
+            for ny in [-1, 0, 1]:
+                y = cell[1] + ny
 
-    def euclidean_distance(self, cell_a, cell_b):
-        return(
-            math.sqrt(
-                (cell_a[0] - cell_b[0])**2 + 
-                (cell_a[1] - cell_b[1])**2
-                )
-            )
+                # Avoid out-of-bounds access
+                if y < 0 or y > height-1: continue
 
-    def get_edge_cost(self, cell_a, cell_b): return(self.euclidean_distance(cell_a, cell_b))
+                # Check if cell is safe
+                if wrld.exit_at(x, y) or wrld.empty_at(x, y) or wrld.characters_at(x, y) or wrld.monsters_at(x, y):
 
-    def get_heuristic(self, goal, cell):     return(self.euclidean_distance(goal, cell))
+                    # Add cell to cell list
+                    cells.append((cell[0] + nx, cell[1] + ny))
+                    
+        return cells
 
-    def a_star(self, wrld, start, goal):
+    def euclideanDistance(self, cell_a, cell_b):
+        return sqrt( (cell_a[0] - cell_b[0])**2 + (cell_a[1] - cell_b[1])**2 )
+
+    def aStar(self, wrld, start, goal):
+
+        # Define A* variables
         frontier    = PriorityQueue()
         came_from   = {}
         cost_so_far = {}
 
-        
-
+        # Set start node
         frontier.put((0, start))
         came_from[start]   = None
         cost_so_far[start] = 0
 
-        while not(frontier.empty()):
+        while not frontier.empty():
+
+            # Remove highest prioririty item from frontier
             current = frontier.get()[1]
 
-            if(current == goal): break
+            # Exit loop if at goal
+            if current == goal: break
 
-            for next in self.get_neighbors_8(wrld, current):
-                new_cost = cost_so_far[current] + self.get_edge_cost(current, next)
+            # Check neighbors of current node
+            for next in self.getNeighbors8(wrld, current):
 
-                if(
-                    (next not in cost_so_far) or
-                    (new_cost < cost_so_far[next])
-                    ):
-                        cost_so_far[next] = new_cost
-                        priority          = new_cost + self.get_heuristic(goal, next)
-                        frontier.put((priority, next))
-                        came_from[next]   = current
+                # Calculate move cost to next node
+                new_cost = cost_so_far[current] + self.euclideanDistance(current, next)
 
+                # If next wasn't visited or the path to next is cheaper than the existing:
+                if (next not in cost_so_far) or (new_cost < cost_so_far[next]):
+
+                    # Set cost, calculate heuristic, and store in queue
+                    cost_so_far[next] = new_cost
+                    priority          = new_cost + self.euclideanDistance(goal, next)
+                    frontier.put((priority, next))
+                    came_from[next]   = current
+
+        # Fill path
         path = []
-        curr_cell = current
-        
-        while(curr_cell is not None):
-            path.append(curr_cell)
-            curr_cell = came_from[curr_cell]
 
-        # path.reverse()
+        while current is not None:
+
+            # Backtrack from current node to get to original
+            path.append(current)
+            current = came_from[current]
+
+        path.reverse()
         return(path)

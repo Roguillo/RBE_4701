@@ -28,7 +28,7 @@ class TestCharacter(CharacterEntity):
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
 
-        minimaxDepth = 10
+        minimaxDepth = 3
         minimaxEnableDist = 4
 
         charMstrDist = len(self.aStar(wrld, char, mstr)) - 1
@@ -37,7 +37,11 @@ class TestCharacter(CharacterEntity):
             print("MINIMAX")
 
             result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
-            next = result[0]
+            res = result[0]
+
+            path = self.aStar(wrld, char, res)
+            next = path.pop()
+            next = path.pop()
 
             print("Next", next)
 
@@ -111,7 +115,7 @@ class TestCharacter(CharacterEntity):
         # Locate surrounding cells
         cells = self.getNeighbors8(wrld, char)
 
-        # Cull cells that are share with the monster
+        # Cull cells that are shared with the monster
         temp = []
         for cell in cells:
             if cell != mstr:
@@ -124,24 +128,25 @@ class TestCharacter(CharacterEntity):
             scores = []
 
             for cell in cells:
-                score = self.aStar(wrld, cell, exit)
+                score = len(self.aStar(wrld, cell, exit))
                 scores.append((cell, score))
-
-            print(scores)
 
             return cells
 
         # Recursively call function
         depth -= 1
-        result = self.minimax(wrld, char, mstr, exit, depth)
+        results = []
+        for cell in cells:
+            results.append(self.minimax(wrld, cell, mstr, exit, depth))
 
         # If returned a set of cells and values, return the cell with the highest value
         minVal = 999
         minCell = None
-        for cell in result:
-            if cell[1] < minVal:
-                minVal = cell[1]
-                minCell = cell[0]
+        for set in results:
+            for cell in set:
+                if cell[1] < minVal:
+                    minVal = cell[1]
+                    minCell = cell[0]
 
         return [(minCell, minVal)]
 

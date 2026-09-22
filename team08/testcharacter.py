@@ -199,68 +199,6 @@ class TestCharacter(CharacterEntity):
         # Return utility value
         return val
 
-
-    # ======== Minimax ========
-    def minimax(self, wrld, char, mstr, exit, depth):
-        
-        # Run minimax of all surrounding values
-        cells = self.getNeighbors8(wrld, char)
-
-        maxVal = float("-inf")
-        maxCell = None
-        for cell in cells:
-            val = self.minValue(wrld, cell, mstr, exit, depth)
-  
-            if val > maxVal:
-                maxVal = val
-                maxCell = cell
-
-        # Return arg max (the state/action responsible for the max value)
-        return maxCell
-
-    def minValue(self, wrld, char, mstr, exit, depth):
-        
-        # If on monster tile, return death cost
-        if char == mstr:
-            return self.deathCost
-
-        # If at end of depth, return low value to deter overextending
-        if depth == 0:
-            return self.evaluatePose(wrld, char, mstr, exit)
-
-        # Set utility value = inf
-        val = float("inf")
-
-        # For every action in the state:
-        mstrCells = self.getNeighbors8(wrld, mstr)
-        for cell in mstrCells:
-            # Value = min(value, maxValueMini(state, action))
-            val = min(val, self.maxValue(wrld, char, cell, exit, depth-1))
-
-        # Return utility value
-        return val
-
-    def maxValue(self, wrld, char, mstr, exit, depth):
-        # If at exit or max depth, return utility
-        if char == exit:
-            return 1000
-        
-        # If at end of depth, return low value to deter overextending
-        if depth == 0:
-            return self.evaluatePose(wrld, char, mstr, exit)
-        
-        # Set utility value to -inf
-        val = float("-inf")
-
-        # For every action in the state:
-        charCells = self.getNeighbors8(wrld, char)
-        for cell in charCells:
-            # Value = max(value, maxiValue(state, action))
-            val = max(val, self.minValue(wrld, cell, mstr, exit, depth-1))
-
-        # Return utility value
-        return val
-
     # ======== A* Calculations ========
 
     def getNeighbors8(self, wrld, cell):

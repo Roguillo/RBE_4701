@@ -9,67 +9,33 @@ from queue import PriorityQueue
 
 class TestCharacter(CharacterEntity):
 
-    """
-    This solution uses a combination of A* path planning and expectimax.
-
-    A* will be used to get values for each tile to prioritize exiting.
-
-    Expectimax will be able to handle both deterministic monster
-    paths (moving straight or within two blocks range of character)
-    and random aspects (random direction moving from wall).
-
-    Only a few levels of expectimax will be calculated to save on
-    both time and space complexity
-    """
-
     def do(self, wrld):
 
         char = self.findChar(wrld)
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
 
-        depth = 3
+        depth = 4
+        distToExpectimax = 10
 
-        self.deathCost = -99
+        self.deathCost = -999
+        self.mstrWeight = 100
 
-        next = self.expectimax(wrld, char, mstr, exit, depth)
+        distToMstr = len(self.aStar(wrld, char, mstr))
+
+        if (distToMstr < distToExpectimax) :
+            next = self.expectimax(wrld, char, mstr, exit, depth)
+        else:
+            result = self.aStar(wrld, char, exit)
+            next = result.pop()
+            next = result.pop()
+
 
         (cx, cy) = char
         (nx, ny) = next
         (x, y) = (nx-cx, ny-cy)
 
         self.move(x, y)
-
-
-
-        # charMstrDist = len(self.aStar(wrld, char, mstr)) - 1
-
-        # if charMstrDist < minimaxEnableDist:
-        #     print("MINIMAX")
-
-        #     result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
-        #     res = result[0][0]
-
-        #     path = self.aStar(wrld, char, res)
-
-        #     if path:
-        #         next = path.pop()
-        #     if path:
-        #         next = path.pop()
-
-        # else:
-        #     print("A*")
-
-        #     path = self.aStar(wrld, char, exit)
-        #     next = path.pop()
-        #     next = path.pop()
-
-        # (cx, cy) = char
-        # (nx, ny) = next
-        # (x, y) = (nx-cx, ny-cy)
-
-        # self.move(x, y)
-
 
 
     def findChar(self, wrld):
@@ -91,61 +57,51 @@ class TestCharacter(CharacterEntity):
     
             return None
     
-    def monsterWall(wrld, mstr, prevMstr):
-        # If monster is moving in a direction and a wall, barrier, or map corner is in the way, return true
-        dir = prevMstr - mstr
-        next = mstr + dir
-        char = wrld[next[0], next[1]]
-
-        if char == "W" or char == "|" or char == "+" or char == "-":
-            return True
-        
-        return False
-
 
     # ======== Expectimax ========
     def expectimax(self, wrld, char, mstr, exit, depth):
         # Run expectimax of all surrounding values
         cells = self.getNeighbors8(wrld, char)
-        cells.remove(char)
 
         maxVal = float("-inf")
         maxCell = None
         for cell in cells:
-            val = -len(self.aStar(wrld, cell, exit))
-            val += self.expectiValue(wrld, cell, mstr, exit, depth)
+            val = self.expectiValue(wrld, cell, mstr, exit, depth)
+            print(val)
+            val += -len(self.aStar(wrld, cell, exit))
         
             if val > maxVal:
                 maxVal = val
                 maxCell = cell
 
+
         # Return arg max (the state/action responsible for the max value)
+
+        print(maxVal)
         return maxCell
 
     def expectiValue(self, wrld, char, mstr, exit, depth):
-        # If at end of depth, return low value to deter overextending
-        if depth == 0:
+        # If on monster tile, return death cost
+        if char == mstr:
             return self.deathCost
 
-        # If at exit or max depth, return high utility
-        if char == exit:
-            return 1000
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return -self.euclideanDistance(char, mstr) * self.mstrWeight
 
         # Set utility value = 0
         val = 0
 
         # For every action in the state:
-        charCells = self.getNeighbors8(wrld, char)
         mstrCells = self.getNeighbors8(wrld, mstr)
-        mstrMoves = len(mstrCells)
-        for cell in charCells:
+        p = 1 / len(mstrCells)
+        for cell in mstrCells:
             # Calculate probability of hitting monster for each action
-            p = 0
-            if cell == mstr: p = 1
-            if cell in mstrCells: p = 1/mstrMoves
-
-            # Value = Value + probability * maxValue(state, action)
-            val += p * self.maxValue(wrld, cell, mstr, exit, depth-1)
+            if cell == char:
+                val += p * self.deathCost
+            else:
+                # Value = Value + probability * maxValue(state, action)
+                val += p * self.maxValue(wrld, char, cell, exit, depth-1)
 
         # Return utility value
         return val
@@ -155,6 +111,10 @@ class TestCharacter(CharacterEntity):
         if char == exit:
             return 1000
         
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return -len(self.aStar(wrld, char, mstr)) * self.mstrWeight
+        
         # Set utility value to -inf
         val = float("-inf")
 
@@ -162,7 +122,7 @@ class TestCharacter(CharacterEntity):
         charCells = self.getNeighbors8(wrld, char)
         for cell in charCells:
             # Value = max(value, expectiValue(state, action))
-            val = max(val, self.expectiValue(wrld, cell, mstr, exit, depth))
+            val = max(val, self.expectiValue(wrld, cell, mstr, exit, depth-1))
 
         # Return utility value
         return val
@@ -244,6 +204,9 @@ class TestCharacter(CharacterEntity):
             # Go through neighboring cells in y-direction
             for ny in [-1, 0, 1]:
                 y = cell[1] + ny
+
+                # Skip (0, 0)
+                if nx == 0 and ny == 0: continue
 
                 # Avoid out-of-bounds access
                 if y < 0 or y > height-1: continue

@@ -11,7 +11,7 @@ class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
 
-        # Locate key entities and exit
+        # Locate entities and exit coordinates
         char = self.findChar(wrld)
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
@@ -27,8 +27,8 @@ class TestCharacter(CharacterEntity):
         # Define weights for expectimax states and actions
         self.deathCost = -999
         self.mstrWeight = 10
-        self.exitWeight = 0
-        self.mstrChaseDist = 4
+        self.exitWeight = 10
+        self.mstrChaseDist = 2.8
         self.mstrChaseCost = 100
 
         # Use A* or expectimax depending on monster proximity
@@ -49,19 +49,22 @@ class TestCharacter(CharacterEntity):
         self.move(x, y)
 
     def evaluatePose(self, wrld, char, mstr, exit):
+        
+        # Calculate score of a state given character distance to monster and exit
         mstrDist = self.euclideanDistance(char, mstr)
         
         score = 0
         score += mstrDist * self.mstrWeight
         score -= len(self.aStar(wrld, char, exit)) * self.exitWeight
         
+        # Only add this score if the monster will start deterministically chasing
         if mstrDist < self.mstrChaseDist:
             score -= 1 / mstrDist * self.mstrChaseCost
         
         return score
 
     def findChar(self, wrld):
-        return (wrld.me(self).x, wrld.me(self).y)
+        return wrld.me(self).x, wrld.me(self).y
 
     def findMstr(self, wrld):
         for x in range(wrld.width()):
@@ -71,14 +74,6 @@ class TestCharacter(CharacterEntity):
 
         return None
 
-    def findExit(self, wrld):
-        for x in range(wrld.width()):
-            for y in range(wrld.height()):
-                if wrld.exit_at(x, y):
-                    return (x, y)
-
-        return None
-    
     def mstrAtWall(self, wrld, mstr):
                 
         # Define position after next move
@@ -98,6 +93,7 @@ class TestCharacter(CharacterEntity):
 
     # ======== Expectimax ========
     def expectimax(self, wrld, char, mstr, exit, depth):
+        
         # Run expectimax of all surrounding values
         cells = self.getNeighbors8(wrld, char)
 
@@ -106,13 +102,10 @@ class TestCharacter(CharacterEntity):
         for cell in cells:
             val = self.expValue(wrld, cell, mstr, exit, depth)
             val += -len(self.aStar(wrld, cell, exit))
-        
-            print("Cell:", cell, " |  Value:", val)
-            
+                    
             if val > maxVal:
                 maxVal = val
                 maxCell = cell
-
 
         # Return arg max (the state/action responsible for the max value)
         return maxCell
@@ -209,6 +202,7 @@ class TestCharacter(CharacterEntity):
 
     # ======== Minimax ========
     def minimax(self, wrld, char, mstr, exit, depth):
+        
         # Run minimax of all surrounding values
         cells = self.getNeighbors8(wrld, char)
 
@@ -221,11 +215,11 @@ class TestCharacter(CharacterEntity):
                 maxVal = val
                 maxCell = cell
 
-
         # Return arg max (the state/action responsible for the max value)
         return maxCell
 
     def minValue(self, wrld, char, mstr, exit, depth):
+        
         # If on monster tile, return death cost
         if char == mstr:
             return self.deathCost

@@ -15,21 +15,38 @@ class TestCharacter(CharacterEntity):
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
 
-        depth = 4
-        distToExpectimax = 10
+        minimaxDepth = 6
+        expectimaxDepth = 4
+
+        # Use these values for hysterises when switching states
+        closeVal = 4
+        farVal = 6
 
         self.deathCost = -999
-        self.mstrWeight = 100
+        self.mstrWeight = 20
+        self.exitWeight = 1
 
         distToMstr = len(self.aStar(wrld, char, mstr))
 
-        if (distToMstr < distToExpectimax) :
-            next = self.expectimax(wrld, char, mstr, exit, depth)
+        state = "A*"
+        print("Distance:", distToMstr)
+
+        if distToMstr <= closeVal:
+            next = self.minimax(wrld, char, mstr, exit, minimaxDepth)
+            state = "mini"
+            print("Test")
+
+        elif distToMstr <= farVal:
+            next = self.expectimax(wrld, char, mstr, exit, expectimaxDepth)
+            state = "expecti"
+
         else:
             result = self.aStar(wrld, char, exit)
             next = result.pop()
             next = result.pop()
+            state = "A*"
 
+        print("State:", state)
 
         (cx, cy) = char
         (nx, ny) = next
@@ -66,8 +83,7 @@ class TestCharacter(CharacterEntity):
         maxVal = float("-inf")
         maxCell = None
         for cell in cells:
-            val = self.expectiValue(wrld, cell, mstr, exit, depth)
-            print(val)
+            val = self.expValue(wrld, cell, mstr, exit, depth)
             val += -len(self.aStar(wrld, cell, exit))
         
             if val > maxVal:
@@ -76,18 +92,16 @@ class TestCharacter(CharacterEntity):
 
 
         # Return arg max (the state/action responsible for the max value)
-
-        print(maxVal)
         return maxCell
 
-    def expectiValue(self, wrld, char, mstr, exit, depth):
+    def expValue(self, wrld, char, mstr, exit, depth):
         # If on monster tile, return death cost
         if char == mstr:
             return self.deathCost
 
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return -self.euclideanDistance(char, mstr) * self.mstrWeight
+            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
 
         # Set utility value = 0
         val = 0
@@ -101,7 +115,68 @@ class TestCharacter(CharacterEntity):
                 val += p * self.deathCost
             else:
                 # Value = Value + probability * maxValue(state, action)
-                val += p * self.maxValue(wrld, char, cell, exit, depth-1)
+                val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
+
+        # Return utility value
+        return val
+
+    def expectiMaxValue(self, wrld, char, mstr, exit, depth):
+        # If at exit or max depth, return utility
+        if char == exit:
+            return 1000
+        
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+        
+        # Set utility value to -inf
+        val = float("-inf")
+
+        # For every action in the state:
+        charCells = self.getNeighbors8(wrld, char)
+        for cell in charCells:
+            # Value = max(value, expectiValue(state, action))
+            val = max(val, self.expValue(wrld, cell, mstr, exit, depth-1))
+
+        # Return utility value
+        return val
+
+
+    # ======== Minimax ========
+    def minimax(self, wrld, char, mstr, exit, depth):
+        # Run minimax of all surrounding values
+        cells = self.getNeighbors8(wrld, char)
+
+        maxVal = float("-inf")
+        maxCell = None
+        for cell in cells:
+            val = self.minValue(wrld, cell, mstr, exit, depth)
+  
+            if val > maxVal:
+                maxVal = val
+                maxCell = cell
+
+
+        # Return arg max (the state/action responsible for the max value)
+        return maxCell
+
+    def minValue(self, wrld, char, mstr, exit, depth):
+        # If on monster tile, return death cost
+        if char == mstr:
+            return self.deathCost
+
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+
+        # Set utility value = inf
+        val = float("inf")
+
+        # For every action in the state:
+        mstrCells = self.getNeighbors8(wrld, mstr)
+        for cell in mstrCells:
+            # Value = min(value, maxValueMini(state, action))
+            val = min(val, self.maxValue(wrld, char, cell, exit, depth-1))
 
         # Return utility value
         return val
@@ -113,7 +188,7 @@ class TestCharacter(CharacterEntity):
         
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return -len(self.aStar(wrld, char, mstr)) * self.mstrWeight
+            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
         
         # Set utility value to -inf
         val = float("-inf")
@@ -121,68 +196,11 @@ class TestCharacter(CharacterEntity):
         # For every action in the state:
         charCells = self.getNeighbors8(wrld, char)
         for cell in charCells:
-            # Value = max(value, expectiValue(state, action))
-            val = max(val, self.expectiValue(wrld, cell, mstr, exit, depth-1))
+            # Value = max(value, maxiValue(state, action))
+            val = max(val, self.minValue(wrld, cell, mstr, exit, depth-1))
 
         # Return utility value
         return val
-
-
-    # ======== Minimax ========
-    def minimax(self, wrld, char, mstr, exit, depth):
-        # RECURSIVE FUNCTION
-        # Returns surrounding cells and values associated with each cell (dict)
-
-        # Calculate monster optimal move
-        mstrPath = self.aStar(wrld, mstr, char)
-        next = mstrPath.pop()
-        next = mstrPath.pop()
-
-        (mx, my) = mstr
-        (nx, ny) = next
-        (x, y) = (nx-mx, ny-my)
-        mstr = (mstr[0]+x, mstr[1]+y)
-
-        # Locate surrounding cells
-        charCells = self.getNeighbors8(wrld, char)
-        mstrCells = self.getNeighbors8(wrld, mstr)
-        mstrCells.append(mstr)
-
-        # Cull cells that are shared with the monster and the cells surrounding the monster
-        temp = []
-        for cell in charCells:
-            if cell not in mstrCells:
-                temp.append(cell)
-            
-        cells = temp
-
-        # If depth is 0, return score of each surrounding cell
-        if depth == 0:
-            scores = []
-
-            for cell in cells:
-                score = len(self.aStar(wrld, cell, exit))
-                scores.append((cell, score))
-
-            return scores
-
-        # Recursively call function
-        depth -= 1
-        results = []
-        for cell in cells:
-            results.append(self.minimax(wrld, cell, mstr, exit, depth))
-
-        # If returned a set of cells and values, return the cell with the highest value
-        minVal = 999
-        minCell = None
-        for set in results:
-            for cell in set:
-                if cell[1] < minVal:
-                    minVal = cell[1]
-                    minCell = cell[0]
-
-        return [(minCell, minVal)]
-
 
     # ======== A* Calculations ========
 

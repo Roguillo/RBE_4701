@@ -28,36 +28,49 @@ class TestCharacter(CharacterEntity):
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
 
-        minimaxDepth = 3
-        minimaxEnableDist = 4
+        depth = 3
 
-        charMstrDist = len(self.aStar(wrld, char, mstr)) - 1
+        self.deathCost = -99
 
-        if charMstrDist < minimaxEnableDist:
-            print("MINIMAX")
-
-            result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
-            res = result[0][0]
-
-            path = self.aStar(wrld, char, res)
-
-            if path:
-                next = path.pop()
-            if path:
-                next = path.pop()
-
-        else:
-            print("A*")
-
-            path = self.aStar(wrld, char, exit)
-            next = path.pop()
-            next = path.pop()
+        next = self.expectimax(wrld, char, mstr, exit, depth)
 
         (cx, cy) = char
         (nx, ny) = next
         (x, y) = (nx-cx, ny-cy)
 
         self.move(x, y)
+
+
+
+        # charMstrDist = len(self.aStar(wrld, char, mstr)) - 1
+
+        # if charMstrDist < minimaxEnableDist:
+        #     print("MINIMAX")
+
+        #     result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
+        #     res = result[0][0]
+
+        #     path = self.aStar(wrld, char, res)
+
+        #     if path:
+        #         next = path.pop()
+        #     if path:
+        #         next = path.pop()
+
+        # else:
+        #     print("A*")
+
+        #     path = self.aStar(wrld, char, exit)
+        #     next = path.pop()
+        #     next = path.pop()
+
+        # (cx, cy) = char
+        # (nx, ny) = next
+        # (x, y) = (nx-cx, ny-cy)
+
+        # self.move(x, y)
+
+
 
     def findChar(self, wrld):
         return (wrld.me(self).x, wrld.me(self).y)
@@ -88,6 +101,71 @@ class TestCharacter(CharacterEntity):
             return True
         
         return False
+
+
+    # ======== Expectimax ========
+    def expectimax(self, wrld, char, mstr, exit, depth):
+        # Run expectimax of all surrounding values
+        cells = self.getNeighbors8(wrld, char)
+        cells.remove(char)
+
+        maxVal = float("-inf")
+        maxCell = None
+        for cell in cells:
+            val = -len(self.aStar(wrld, cell, exit))
+            val += self.expectiValue(wrld, cell, mstr, exit, depth)
+        
+            if val > maxVal:
+                maxVal = val
+                maxCell = cell
+
+        # Return arg max (the state/action responsible for the max value)
+        return maxCell
+
+    def expectiValue(self, wrld, char, mstr, exit, depth):
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.deathCost
+
+        # If at exit or max depth, return high utility
+        if char == exit:
+            return 1000
+
+        # Set utility value = 0
+        val = 0
+
+        # For every action in the state:
+        charCells = self.getNeighbors8(wrld, char)
+        mstrCells = self.getNeighbors8(wrld, mstr)
+        mstrMoves = len(mstrCells)
+        for cell in charCells:
+            # Calculate probability of hitting monster for each action
+            p = 0
+            if cell == mstr: p = 1
+            if cell in mstrCells: p = 1/mstrMoves
+
+            # Value = Value + probability * maxValue(state, action)
+            val += p * self.maxValue(wrld, cell, mstr, exit, depth-1)
+
+        # Return utility value
+        return val
+
+    def maxValue(self, wrld, char, mstr, exit, depth):
+        # If at exit or max depth, return utility
+        if char == exit:
+            return 1000
+        
+        # Set utility value to -inf
+        val = float("-inf")
+
+        # For every action in the state:
+        charCells = self.getNeighbors8(wrld, char)
+        for cell in charCells:
+            # Value = max(value, expectiValue(state, action))
+            val = max(val, self.expectiValue(wrld, cell, mstr, exit, depth))
+
+        # Return utility value
+        return val
 
 
     # ======== Minimax ========

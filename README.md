@@ -89,7 +89,7 @@ The parameter `wrld` has type `SensedWorld` (definition
 which in turn is a subclass of `World` (definition
 [here](https://github.com/NESTLab/RBE470x-projects/blob/master/Bomberman/world.py)).
 
-The most useful methods and attributes in this class are the following:
+The m methods and attributes in this class are the following:
 - `wrld.width()`: returns the width of the world
 - `wrld.height()`: returns the height of the world
 - `wrld.empty_at(x, y)`: returns `True` if the cell `(x,y)` is empty

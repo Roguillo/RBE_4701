@@ -4,69 +4,67 @@ sys.path.insert(0, '../bomberman')
 # Import necessary stuff
 from entity import CharacterEntity
 from colorama import Fore, Back
-import math
+from math import sqrt
 from queue import PriorityQueue
 
 class TestCharacter(CharacterEntity):
 
-    """
-    This solution uses a combination of A* path planning and expectimax.
-
-    A* will be used to get values for each tile to prioritize exiting.
-
-    Expectimax will be able to handle both deterministic monster
-    paths (moving straight or within two blocks range of character)
-    and random aspects (random direction moving from wall).
-
-    Only a few levels of expectimax will be calculated to save on
-    both time and space complexity
-    """
-
     def do(self, wrld):
 
+        # Locate entities and exit coordinates
         char = self.findChar(wrld)
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
+        
+        # Determine which direction the monster is moving in
+        m = next(iter(wrld.monsters.values()))
+        self.mstrMovement = (m[0].dx, m[0].dy)
+        
+        # Define expectimax start and depth variables
+        depth = 4
+        mstrDist = 6
 
-        targetMstrDist = 4
-        mstrDistWeight = 5
+        # Define weights for expectimax states and actions
+        self.deathCost = -999
+        self.mstrWeight = 10
+        self.exitWeight = 10
+        self.mstrChaseDist = 2.8
+        self.mstrChaseCost = 100
 
-        # Iterate through eight cells surrounding player
-        # Give each cell a score as a sum of dist to goal
-        # and distance to monster
-        cells = self.get_neighbors_8(wrld, char)
-        minScore = 999
-        bestMove = None
-        for cell in cells:
-            score = len(self.a_star(wrld, cell, exit))
+        # Use A* or expectimax depending on monster proximity
+        distToMstr = len(self.aStar(wrld, char, mstr))
+        
+        if distToMstr < mstrDist:
+            nextStep = self.expectimax(wrld, char, mstr, exit, depth)
 
-            cellMstrDist = self.euclidean_distance(cell, mstr)
+        else:
+            result = self.aStar(wrld, char, exit)
+            nextStep = result.pop()
+            nextStep = result.pop()
 
-            if cellMstrDist <= targetMstrDist:
-                score += (targetMstrDist - cellMstrDist + 1) * mstrDistWeight
-
-            print(cell, score, cellMstrDist)
-
-            if score < minScore:
-                minScore = score
-                bestMove = cell
-
-
-
-        # path = self.a_star(wrld, char, exit)
-        # exitDist = len(path)
-
-        # next = path.pop()
-        # next = path.pop()
-
+        # Execute best move
         (cx, cy) = char
-        (nx, ny) = bestMove
+        (nx, ny) = nextStep
         (x, y) = (nx-cx, ny-cy)
         self.move(x, y)
 
+    def evaluatePose(self, wrld, char, mstr, exit):
+        
+        # Calculate score of a state given character distance to monster and exit
+        mstrDist = self.euclideanDistance(char, mstr)
+        
+        score = 0
+        score += mstrDist * self.mstrWeight
+        score -= len(self.aStar(wrld, char, exit)) * self.exitWeight
+        
+        # Only add this score if the monster will start deterministically chasing
+        if mstrDist < self.mstrChaseDist:
+            score -= 1 / mstrDist * self.mstrChaseCost
+        
+        return score
 
     def findChar(self, wrld):
-        return (wrld.me(self).x, wrld.me(self).y)
+        return wrld.me(self).x, wrld.me(self).y
 
     def findMstr(self, wrld):
         for x in range(wrld.width()):
@@ -76,101 +74,273 @@ class TestCharacter(CharacterEntity):
 
         return None
 
-    def findExit(self, wrld):
-            for x in range(wrld.width()):
-                for y in range(wrld.height()):
-                    if wrld.exit_at(x, y):
-                        return (x, y)
-    
-            return None
-    
-    def monsterWall(wrld, mstr, prevMstr):
-        # If monster is moving in a direction and a wall, barrier, or map corner is in the way, return true
-        dir = prevMstr - mstr
-        next = mstr + dir
-        char = wrld[next[0], next[1]]
-
-        if char == "W" or char == "|" or char == "+" or char == "-":
+    def mstrAtWall(self, wrld, mstr):
+                
+        # Define position after next move
+        x = mstr[0] + self.mstrMovement[0]*2
+        y = mstr[1] + self.mstrMovement[1]*2        
+        
+        # Check if next move is in a wall or barrier
+        width = wrld.width()
+        height = wrld.height()
+        
+        # Check if next cell is a barrier
+        if (x<0 or x>width-1) or (y<0 or y>height-1) or wrld.wall_at(x, y):
             return True
         
         return False
+    
 
+    # ======== Expectimax ========
+    def expectimax(self, wrld, char, mstr, exit, depth):
+        
+        # Run expectimax of all surrounding values
+        cells = self.getNeighbors8(wrld, char)
+
+        maxVal = float("-inf")
+        maxCell = None
+        for cell in cells:
+            val = self.expValue(wrld, cell, mstr, exit, depth)
+            val += -len(self.aStar(wrld, cell, exit))
+                    
+            if val > maxVal:
+                maxVal = val
+                maxCell = cell
+
+        # Return arg max (the state/action responsible for the max value)
+        return maxCell
+
+    def expValue(self, wrld, char, mstr, exit, depth):
+        
+        # If on monster tile, return death cost
+        if char == mstr:
+            return self.deathCost
+
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.evaluatePose(wrld, char, mstr, exit)
+
+        # Set utility value = 0
+        val = 0
+
+        # If within monster chasse distance, monster moves deterministically
+        if self.euclideanDistance(char, mstr) <= self.mstrChaseDist:
+            
+            # Calculate ideal monster move
+            x = char[0] - mstr[0]
+            y = char[1] - mstr[1]
+            
+            # Clamp movement
+            x = max(-1, min(x, 1))
+            y = max(-1, min(x, 1))
+            
+            next = (mstr[0]+x, mstr[1]+y)
+            
+            if next == char:
+                val += self.deathCost
+            else:
+                # Value = Value + probability * maxValue(state, action)
+                val += self.expectiMaxValue(wrld, char, next, exit, depth-1)
+                
+                # Subtract from score if monster is chasing
+                val -= self.mstrChaseCost
+        
+        # If at wall, monster moves randomly in direction with probability of 1/(possible moves)
+        elif self.mstrAtWall(wrld, mstr):
+            
+            # For every action in the state:
+            mstrCells = self.getNeighbors8(wrld, mstr)
+            p = 1 / len(mstrCells)
+            for cell in mstrCells:
+                # Calculate probability of hitting monster for each action
+                if cell == char:
+                    val += p * self.deathCost
+                else:
+                    # Value = Value + probability * maxValue(state, action)
+                    val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
+                    
+        # If outside two cells, monster moves deterministically
+        else:
+                        
+            # Calculate next monster move
+            x = mstr[0] + self.mstrMovement[0]
+            y = mstr[1] + self.mstrMovement[1]
+                        
+            next = (x, y)
+            
+            if next == char:
+                val += self.deathCost
+            else:
+                # Value = Value + probability * maxValue(state, action)
+                val += self.expectiMaxValue(wrld, char, next, exit, depth-1) 
+
+        # Return utility value
+        return val
+
+    def expectiMaxValue(self, wrld, char, mstr, exit, depth):
+        
+        # If at exit or max depth, return utility
+        if char == exit:
+            return 1000
+        
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.evaluatePose(wrld, char, mstr, exit)
+        
+        # Set utility value to -inf
+        val = float("-inf")
+
+        # For every action in the state:
+        charCells = self.getNeighbors8(wrld, char)
+        for cell in charCells:
+            # Value = max(value, expectiValue(state, action))
+            val = max(val, self.expValue(wrld, cell, mstr, exit, depth-1))
+
+        # Return utility value
+        return val
+
+
+    # ======== Minimax ========
+    def minimax(self, wrld, char, mstr, exit, depth):
+        
+        # Run minimax of all surrounding values
+        cells = self.getNeighbors8(wrld, char)
+
+        maxVal = float("-inf")
+        maxCell = None
+        for cell in cells:
+            val = self.minValue(wrld, cell, mstr, exit, depth)
+  
+            if val > maxVal:
+                maxVal = val
+                maxCell = cell
+
+        # Return arg max (the state/action responsible for the max value)
+        return maxCell
+
+    def minValue(self, wrld, char, mstr, exit, depth):
+        
+        # If on monster tile, return death cost
+        if char == mstr:
+            return self.deathCost
+
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.evaluatePose(wrld, char, mstr, exit)
+
+        # Set utility value = inf
+        val = float("inf")
+
+        # For every action in the state:
+        mstrCells = self.getNeighbors8(wrld, mstr)
+        for cell in mstrCells:
+            # Value = min(value, maxValueMini(state, action))
+            val = min(val, self.maxValue(wrld, char, cell, exit, depth-1))
+
+        # Return utility value
+        return val
+
+    def maxValue(self, wrld, char, mstr, exit, depth):
+        # If at exit or max depth, return utility
+        if char == exit:
+            return 1000
+        
+        # If at end of depth, return low value to deter overextending
+        if depth == 0:
+            return self.evaluatePose(wrld, char, mstr, exit)
+        
+        # Set utility value to -inf
+        val = float("-inf")
+
+        # For every action in the state:
+        charCells = self.getNeighbors8(wrld, char)
+        for cell in charCells:
+            # Value = max(value, maxiValue(state, action))
+            val = max(val, self.minValue(wrld, cell, mstr, exit, depth-1))
+
+        # Return utility value
+        return val
 
     # ======== A* Calculations ========
 
-    def get_neighbors_8(self, wrld, cell):
-        # List of empty cells
+    def getNeighbors8(self, wrld, cell):
+
+        width = wrld.width()
+        height = wrld.height()
+
+        # Empty list to store cells
         cells = []
 
-        # Go through neighboring cells
+        # Go through neighboring cells in x-direction
         for nx in [-1, 0, 1]:
+            x = cell[0] + nx
+
             # Avoid out-of-bounds access
-            if (
-                (cell[0] + nx >= 0)           and
-                (cell[0] + nx <  wrld.width())
-                ):
-                for ny in [-1, 0, 1]:
-                    # Avoid out-of-bounds access
-                    if (
-                        (
-                            (cell[1] + ny >= 0)             and
-                            (cell[1] + ny <  wrld.height())
+            if x < 0 or x > width-1: continue
 
-                        # Is this cell safe?
-                        ) and (
-                             wrld.exit_at (cell[0] + nx, cell[1] + ny) or
-                             wrld.empty_at(cell[0] + nx, cell[1] + ny)
-                        )
-                        ):
-                            cells.append((cell[0] + nx, cell[1] + ny))
-        return(cells)
+            # Go through neighboring cells in y-direction
+            for ny in [-1, 0, 1]:
+                y = cell[1] + ny
 
-    def euclidean_distance(self, cell_a, cell_b):
-        return(
-            math.sqrt(
-                (cell_a[0] - cell_b[0])**2 + 
-                (cell_a[1] - cell_b[1])**2
-                )
-            )
+                # Skip (0, 0)
+                if nx == 0 and ny == 0: continue
 
-    def get_edge_cost(self, cell_a, cell_b): return(self.euclidean_distance(cell_a, cell_b))
+                # Avoid out-of-bounds access
+                if y < 0 or y > height-1: continue
 
-    def get_heuristic(self, goal, cell):     return(self.euclidean_distance(goal, cell))
+                # Check if cell is safe
+                if wrld.exit_at(x, y) or wrld.empty_at(x, y) or wrld.characters_at(x, y) or wrld.monsters_at(x, y):
 
-    def a_star(self, wrld, start, goal):
+                    # Add cell to cell list
+                    cells.append((x, y))
+                    
+        return cells
+
+    def euclideanDistance(self, a, b):
+        return sqrt( (a[0] - b[0])**2 + (a[1] - b[1])**2 )
+
+    def aStar(self, wrld, start, goal):
+
+        # Define A* variables
         frontier    = PriorityQueue()
         came_from   = {}
         cost_so_far = {}
 
-        
-
+        # Set start node
         frontier.put((0, start))
         came_from[start]   = None
         cost_so_far[start] = 0
 
-        while not(frontier.empty()):
+        while not frontier.empty():
+
+            # Remove highest prioririty item from frontier
             current = frontier.get()[1]
 
-            if(current == goal): break
+            # Exit loop if at goal
+            if current == goal: break
 
-            for next in self.get_neighbors_8(wrld, current):
-                new_cost = cost_so_far[current] + self.get_edge_cost(current, next)
+            # Check neighbors of current node
+            for next in self.getNeighbors8(wrld, current):
 
-                if(
-                    (next not in cost_so_far) or
-                    (new_cost < cost_so_far[next])
-                    ):
-                        cost_so_far[next] = new_cost
-                        priority          = new_cost + self.get_heuristic(goal, next)
-                        frontier.put((priority, next))
-                        came_from[next]   = current
+                # Calculate move cost to next node
+                new_cost = cost_so_far[current] + self.euclideanDistance(current, next)
 
+                # If next wasn't visited or the path to next is cheaper than the existing:
+                if (next not in cost_so_far) or (new_cost < cost_so_far[next]):
+
+                    # Set cost, calculate heuristic, and store in queue
+                    cost_so_far[next] = new_cost
+                    priority          = new_cost + self.euclideanDistance(goal, next)
+                    frontier.put((priority, next))
+                    came_from[next]   = current
+
+        # Fill path
         path = []
-        curr_cell = current
-        
-        while(curr_cell is not None):
-            path.append(curr_cell)
-            curr_cell = came_from[curr_cell]
 
-        # path.reverse()
-        return(path)
+        while current is not None:
+
+            # Backtrack from current node to get to original
+            path.append(current)
+            current = came_from[current]
+
+        return path

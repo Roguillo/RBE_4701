@@ -24,85 +24,35 @@ class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
 
-
         char = self.findChar(wrld)
-        print(char)
         mstr = self.findMstr(wrld)
-        print(mstr)
         exit = wrld.exitcell
-        print(exit)
 
-        path = self.aStar(wrld, char, mstr)
+        minimaxDepth = 10
+        minimaxEnableDist = 4
 
-        print(len(path)-1)
+        charMstrDist = len(self.aStar(wrld, char, mstr)) - 1
 
-        # minimaxDepth = 2
-        # minimaxEnableDist = 5
+        if charMstrDist < minimaxEnableDist:
+            print("MINIMAX")
 
-        # char = self.findChar(wrld)
-        # print(char)
-        # mstr = self.findMstr(wrld)
-        # print(mstr)
-        # exit = wrld.exitcell
-        # print(exit)
+            result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
+            next = result[0]
 
-        # result = self.a_star(wrld, (0, 0), mstr)
-        # print(result)
-        # charMstrDist = len(result) - 1
+            print("Next", next)
 
-        # if (charMstrDist <= minimaxEnableDist):
-        #     print("Close!")
-        #     print(charMstrDist)
-        # else:
-        #     print("Far!")
-        #     print(charMstrDist)
+        else:
+            print("A*")
+
+            path = self.aStar(wrld, char, exit)
+            next = path.pop()
+            next = path.pop()
 
 
-
-
-
-
-
-
-        
-        
-
-        # targetMstrDist = 4
-        # mstrDistWeight = 5
-
-        # # Iterate through eight cells surrounding player
-        # # Give each cell a score as a sum of dist to goal
-        # # and distance to monster
-        # cells = self.get_neighbors_8(wrld, char)
-        # minScore = 999
-        # bestMove = None
-        # for cell in cells:
-        #     score = len(self.a_star(wrld, cell, exit))
-
-        #     cellMstrDist = self.euclidean_distance(cell, mstr)
-
-        #     if cellMstrDist <= targetMstrDist:
-        #         score += (targetMstrDist - cellMstrDist + 1) * mstrDistWeight
-
-        #     print(cell, score, cellMstrDist)
-
-        #     if score < minScore:
-        #         minScore = score
-        #         bestMove = cell
-
-
-
-        # path = self.a_star(wrld, char, exit)
-        # exitDist = len(path)
-
-        # next = path.pop()
-        # next = path.pop()
-
-        # (cx, cy) = char
-        # (nx, ny) = bestMove
-        # (x, y) = (nx-cx, ny-cy)
-        # self.move(x, y)
-
+        (cx, cy) = char
+        (nx, ny) = next
+        (x, y) = (nx-cx, ny-cy)
+        self.move(x, y)
 
     def findChar(self, wrld):
         return (wrld.me(self).x, wrld.me(self).y)
@@ -136,8 +86,64 @@ class TestCharacter(CharacterEntity):
 
 
     # ======== Minimax ========
-    def minimax(self, wrld, depth):
-        pass
+    def minimax(self, wrld, char, mstr, exit, depth):
+        # RECURSIVE FUNCTION
+        # Returns surrounding cells and values associated with each cell (dict)
+
+        # Calculate monster optimal move
+        cells = self.getNeighbors8(wrld, mstr)
+
+        minVal = 999.0
+        minCell = None
+        for cell in cells:
+            dist = self.euclideanDistance(cell, char)
+
+            if dist < minVal:
+                minVal = dist
+                minCell = cell
+
+        (mx, my) = mstr
+        (nx, ny) = minCell
+        (x, y) = (nx-mx, ny-my)
+
+        mstr = (mstr[0]+x, mstr[1]+y)
+
+        # Locate surrounding cells
+        cells = self.getNeighbors8(wrld, char)
+
+        # Cull cells that are share with the monster
+        temp = []
+        for cell in cells:
+            if cell != mstr:
+                temp.append(cell)
+
+        cells = temp
+
+        # If depth is 0, return score of each surrounding cell
+        if depth == 0:
+            scores = []
+
+            for cell in cells:
+                score = self.aStar(wrld, cell, exit)
+                scores.append((cell, score))
+
+            print(scores)
+
+            return cells
+
+        # Recursively call function
+        depth -= 1
+        result = self.minimax(wrld, char, mstr, exit, depth)
+
+        # If returned a set of cells and values, return the cell with the highest value
+        minVal = 999
+        minCell = None
+        for cell in result:
+            if cell[1] < minVal:
+                minVal = cell[1]
+                minCell = cell[0]
+
+        return [(minCell, minVal)]
 
 
     # ======== A* Calculations ========
@@ -168,12 +174,12 @@ class TestCharacter(CharacterEntity):
                 if wrld.exit_at(x, y) or wrld.empty_at(x, y) or wrld.characters_at(x, y) or wrld.monsters_at(x, y):
 
                     # Add cell to cell list
-                    cells.append((cell[0] + nx, cell[1] + ny))
+                    cells.append((x, y))
                     
         return cells
 
-    def euclideanDistance(self, cell_a, cell_b):
-        return sqrt( (cell_a[0] - cell_b[0])**2 + (cell_a[1] - cell_b[1])**2 )
+    def euclideanDistance(self, a, b):
+        return sqrt( (a[0] - b[0])**2 + (a[1] - b[1])**2 )
 
     def aStar(self, wrld, start, goal):
 
@@ -219,5 +225,4 @@ class TestCharacter(CharacterEntity):
             path.append(current)
             current = came_from[current]
 
-        path.reverse()
-        return(path)
+        return path

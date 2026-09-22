@@ -11,49 +11,54 @@ class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
 
+        # Locate key entities and exit
         char = self.findChar(wrld)
         mstr = self.findMstr(wrld)
         exit = wrld.exitcell
+        
+        # Determine which direction the monster is moving in
+        m = next(iter(wrld.monsters.values()))
+        self.mstrMovement = (m[0].dx, m[0].dy)
+        
+        # Define expectimax start and depth variables
+        depth = 4
+        mstrDist = 6
 
-        minimaxDepth = 6
-        expectimaxDepth = 4
-
-        # Use these values for hysterises when switching states
-        closeVal = 4
-        farVal = 6
-
+        # Define weights for expectimax states and actions
         self.deathCost = -999
-        self.mstrWeight = 20
-        self.exitWeight = 1
+        self.mstrWeight = 10
+        self.exitWeight = 0
+        self.mstrChaseDist = 4
+        self.mstrChaseCost = 100
 
+        # Use A* or expectimax depending on monster proximity
         distToMstr = len(self.aStar(wrld, char, mstr))
-
-        state = "A*"
-        print("Distance:", distToMstr)
-
-        if distToMstr <= closeVal:
-            next = self.minimax(wrld, char, mstr, exit, minimaxDepth)
-            state = "mini"
-            print("Test")
-
-        elif distToMstr <= farVal:
-            next = self.expectimax(wrld, char, mstr, exit, expectimaxDepth)
-            state = "expecti"
+        
+        if distToMstr < mstrDist:
+            nextStep = self.expectimax(wrld, char, mstr, exit, depth)
 
         else:
             result = self.aStar(wrld, char, exit)
-            next = result.pop()
-            next = result.pop()
-            state = "A*"
+            nextStep = result.pop()
+            nextStep = result.pop()
 
-        print("State:", state)
-
+        # Execute best move
         (cx, cy) = char
-        (nx, ny) = next
+        (nx, ny) = nextStep
         (x, y) = (nx-cx, ny-cy)
-
         self.move(x, y)
 
+    def evaluatePose(self, wrld, char, mstr, exit):
+        mstrDist = self.euclideanDistance(char, mstr)
+        
+        score = 0
+        score += mstrDist * self.mstrWeight
+        score -= len(self.aStar(wrld, char, exit)) * self.exitWeight
+        
+        if mstrDist < self.mstrChaseDist:
+            score -= 1 / mstrDist * self.mstrChaseCost
+        
+        return score
 
     def findChar(self, wrld):
         return (wrld.me(self).x, wrld.me(self).y)
@@ -67,12 +72,28 @@ class TestCharacter(CharacterEntity):
         return None
 
     def findExit(self, wrld):
-            for x in range(wrld.width()):
-                for y in range(wrld.height()):
-                    if wrld.exit_at(x, y):
-                        return (x, y)
+        for x in range(wrld.width()):
+            for y in range(wrld.height()):
+                if wrld.exit_at(x, y):
+                    return (x, y)
+
+        return None
     
-            return None
+    def mstrAtWall(self, wrld, mstr):
+                
+        # Define position after next move
+        x = mstr[0] + self.mstrMovement[0]*2
+        y = mstr[1] + self.mstrMovement[1]*2        
+        
+        # Check if next move is in a wall or barrier
+        width = wrld.width()
+        height = wrld.height()
+        
+        # Check if next cell is a barrier
+        if (x<0 or x>width-1) or (y<0 or y>height-1) or wrld.wall_at(x, y):
+            return True
+        
+        return False
     
 
     # ======== Expectimax ========
@@ -86,6 +107,8 @@ class TestCharacter(CharacterEntity):
             val = self.expValue(wrld, cell, mstr, exit, depth)
             val += -len(self.aStar(wrld, cell, exit))
         
+            print("Cell:", cell, " |  Value:", val)
+            
             if val > maxVal:
                 maxVal = val
                 maxCell = cell
@@ -95,39 +118,81 @@ class TestCharacter(CharacterEntity):
         return maxCell
 
     def expValue(self, wrld, char, mstr, exit, depth):
+        
         # If on monster tile, return death cost
         if char == mstr:
             return self.deathCost
 
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+            return self.evaluatePose(wrld, char, mstr, exit)
 
         # Set utility value = 0
         val = 0
 
-        # For every action in the state:
-        mstrCells = self.getNeighbors8(wrld, mstr)
-        p = 1 / len(mstrCells)
-        for cell in mstrCells:
-            # Calculate probability of hitting monster for each action
-            if cell == char:
-                val += p * self.deathCost
+        # If within monster chasse distance, monster moves deterministically
+        if self.euclideanDistance(char, mstr) <= self.mstrChaseDist:
+            
+            # Calculate ideal monster move
+            x = char[0] - mstr[0]
+            y = char[1] - mstr[1]
+            
+            # Clamp movement
+            x = max(-1, min(x, 1))
+            y = max(-1, min(x, 1))
+            
+            next = (mstr[0]+x, mstr[1]+y)
+            
+            if next == char:
+                val += self.deathCost
             else:
                 # Value = Value + probability * maxValue(state, action)
-                val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
+                val += self.expectiMaxValue(wrld, char, next, exit, depth-1)
+                
+                # Subtract from score if monster is chasing
+                val -= self.mstrChaseCost
+        
+        # If at wall, monster moves randomly in direction with probability of 1/(possible moves)
+        elif self.mstrAtWall(wrld, mstr):
+            
+            # For every action in the state:
+            mstrCells = self.getNeighbors8(wrld, mstr)
+            p = 1 / len(mstrCells)
+            for cell in mstrCells:
+                # Calculate probability of hitting monster for each action
+                if cell == char:
+                    val += p * self.deathCost
+                else:
+                    # Value = Value + probability * maxValue(state, action)
+                    val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
+                    
+        # If outside two cells, monster moves deterministically
+        else:
+                        
+            # Calculate next monster move
+            x = mstr[0] + self.mstrMovement[0]
+            y = mstr[1] + self.mstrMovement[1]
+                        
+            next = (x, y)
+            
+            if next == char:
+                val += self.deathCost
+            else:
+                # Value = Value + probability * maxValue(state, action)
+                val += self.expectiMaxValue(wrld, char, next, exit, depth-1) 
 
         # Return utility value
         return val
 
     def expectiMaxValue(self, wrld, char, mstr, exit, depth):
+        
         # If at exit or max depth, return utility
         if char == exit:
             return 1000
         
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+            return self.evaluatePose(wrld, char, mstr, exit)
         
         # Set utility value to -inf
         val = float("-inf")
@@ -167,7 +232,7 @@ class TestCharacter(CharacterEntity):
 
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+            return self.evaluatePose(wrld, char, mstr, exit)
 
         # Set utility value = inf
         val = float("inf")
@@ -188,7 +253,7 @@ class TestCharacter(CharacterEntity):
         
         # If at end of depth, return low value to deter overextending
         if depth == 0:
-            return self.euclideanDistance(char, mstr) * self.mstrWeight - self.euclideanDistance(char, exit) * self.exitWeight
+            return self.evaluatePose(wrld, char, mstr, exit)
         
         # Set utility value to -inf
         val = float("-inf")

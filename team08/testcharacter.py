@@ -3,6 +3,7 @@ import math
 import sys
 from queue import PriorityQueue
 import random
+import numpy as np
 sys.path.insert(0, '../bomberman')
 # Import necessary stuff
 from entity import CharacterEntity
@@ -98,6 +99,8 @@ class TestCharacter(CharacterEntity):
                         ):
                             cells.append((cell[0] + nx, cell[1] + ny))
         return(cells)
+    
+    
 
     def euclidean_distance(self, cell_a, cell_b):
         return(
@@ -392,13 +395,13 @@ class TestCharacter(CharacterEntity):
 
         return policy
 
-    # max depth/amount of expectimax layers to explore (plies)
-    expectimax_depth = 3
+    # max depth/amount of tree layers to explore (full turns)
+    search_depth = 3
 
     ##
-    # wrld: the world
+    # wrld [SensedWorld]: given world state
     #
-    # >>> returns list of exit cells found
+    # >>> returns list of monster positions found
     def find_monsters(self, wrld):
         monsters = []
 
@@ -408,39 +411,64 @@ class TestCharacter(CharacterEntity):
 
         return(monsters)
 
+    ##
+    # exit          {absolute}(x, y): exit cell
+    # character_pos {absolute}(x, y): given character position
+    # monster_pos   {absolute}(x, y): given monster position
+    # depth                   [int] : current search depth
+    #
+    # >>> returns whether the search is at a terminal state and should end
     def terminal(self, exit, character_pos, monster_pos, depth):
         return(
-            (character_pos == exit)                  or
-            (character_pos == monster_pos)           or
-            (depth         >= self.expectimax_depth)
+            (character_pos == exit)              or
+            (character_pos == monster_pos)       or
+            (depth         >= self.search_depth)
             )
 
+    ##
+    # exit          {absolute}(x, y): exit cell
+    # character_pos {absolute}(x, y): given character position
+    # monster_pos   {absolute}(x, y): given monster position
+    # depth                   [int] : current search depth
+    #
+    # >>> returns node utility
     def utility(self, exit, character_pos, monster_pos, depth):
-        if(character_pos == exit)                              : return( 100 - depth)
-        if(self.euclid_dist(character_pos, monster_pos) < 2.83): return(-100)
+        # getting to the exit sooner is better
+        if(character_pos == exit)       : return( 100 - depth)
+        # dying is bad
+        if(character_pos == monster_pos): return(-100)
 
+        # ratio of exit approach vs. monster avoidance
         k = 1.0
 
-        if(depth         >= self.expectimax_depth):
-            exit_dist    = self.euclid_dist(character_pos, exit)
-            monster_dist = self.euclid_dist(character_pos, monster_pos)
+        # over max search depth
+        if(depth         >= self.search_depth):
+            exit_dist    = self.euclidean_distance(character_pos, exit)
+            monster_dist = self.euclidean_distance(character_pos, monster_pos)
 
             return(-(k * exit_dist) + ((1 - k) * monster_dist))
 
-        return(0)
-    
+    ##
+    # wrld                  [SensedWorld]: given world state
+    # monster_pos {absolute}(x, y)       : given monster position
+    # action      {absolute}(x, y)       : given action
+    # who                   [boolean]    : whom to move {True -> Character, False -> Monster}
+    #
+    # >>> moves corresponding agent in hypothetical world, returns said world, new character position, and new monster position
     def result(self, wrld, monster_pos, action, who):
         hypth_wrld    = wrld.from_world(wrld)
         character     = hypth_wrld.me(self)
         character_pos = (character.x, character.y)
         monster       = hypth_wrld.monsters_at(monster_pos[0], monster_pos[1])[0]
 
+        # move character
         if(who):
             character.move(action[0] - character_pos[0], action[1] - character_pos[1])
             hypth_wrld.update_character_move(character, True)
             new_character_pos = (character.x, character.y)
             new_monster_pos   = monster_pos
 
+        # move monster
         else   :
             monster.move(  action[0] - monster_pos[0]  , action[1] - monster_pos[1])
             hypth_wrld.update_monster_move(monster, True)
@@ -449,50 +477,112 @@ class TestCharacter(CharacterEntity):
 
         return(hypth_wrld, new_character_pos, new_monster_pos)
 
-    def max_node(self, wrld, exit, character_pos, monster_pos, depth):
+    ##
+    # wrld                       [SensedWorld]: given world state
+    # exit             {absolute}(x, y)       : exit cell
+    # character_pos    {absolute}(x, y)       : given character position
+    # monster_pos      {absolute}(x, y)       : given monster position
+    # doing_expectimax          [boolean]     : whether to recurse with a min (minimax) or chance (expectimax) node next
+    # depth                     [int]         : current search depth
+    #
+    # >>> returns found node utility
+    def max_node(self, wrld, exit, character_pos, monster_pos, doing_expectimax, depth):
+        # get utility if terminal
         if(self.terminal(exit, character_pos, monster_pos, depth)):
             return(self.utility(exit, character_pos, monster_pos, depth))
-        
+
+        # start off with $-\infty$
         val = float("-inf")
 
+        # consider character moves
         for action in self.get_neighbors_8(wrld, character_pos):
             (hypth_wrld, new_character_pos, new_monster_pos) = self.result(wrld, monster_pos, action, True)
-            val                                              = max(val, self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1))
+
+            # call chance node if running expectimax, min node if running minimax
+            if(doing_expectimax): val = max(val, self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1))
+            else                : val = max(val, self.min_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth + 1))
 
         return(val)
 
-    def chance_node(self, wrld, exit, character_pos, monster_pos, depth):
+    ##
+    # wrld                       [SensedWorld]: given world state
+    # exit             {absolute}(x, y)       : exit cell
+    # character_pos    {absolute}(x, y)       : given character position
+    # monster_pos      {absolute}(x, y)       : given monster position
+    # depth                      [int]        : current search depth
+    #
+    # >>> returns found node utility
+    def min_node(self, wrld, exit, character_pos, monster_pos, depth):
+        # get utility if terminal
         if(self.terminal(exit, character_pos, monster_pos, depth)):
             return(self.utility(exit, character_pos, monster_pos, depth))
 
-        monster_actions = self.get_neighbors_8(wrld, monster_pos)
-        val             = 0
+        # start off with $\infty$
+        val = float("inf")
 
-        if(not(monster_actions)): prob = 0
-        else                    : prob = 1.0 / len(monster_actions)
-
-        for action in monster_actions:
-            (hypth_wrld, new_character_pos, new_monster_pos)  = self.result(wrld, monster_pos, action, False)
-            val                                              += prob * self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, depth)
+        # consider monster moves
+        for action in self.get_neighbors_8(wrld, monster_pos):
+            (hypth_wrld, new_character_pos, new_monster_pos) = self.result(wrld, monster_pos, action, False)
+            val                                              = min(val, self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, False, depth))
 
         return(val)
 
-    def expectimax(self, wrld):
+    ##
+    # wrld                       [SensedWorld]: given world state
+    # exit             {absolute}(x, y)       : exit cell
+    # character_pos    {absolute}(x, y)       : given character position
+    # monster_pos      {absolute}(x, y)       : given monster position
+    # depth                      [int]        : current search depth
+    #
+    # >>> returns found node utility
+    def chance_node(self, wrld, exit, character_pos, monster_pos, depth):
+        # get utility if terminal
+        if(self.terminal(exit, character_pos, monster_pos, depth)):
+            return(self.utility(exit, character_pos, monster_pos, depth))
+
+        # get monster moves
+        monster_actions = self.get_neighbors_8(wrld, monster_pos)
+        # start off with zero
+        val             = 0
+        # get probability from actions (all equally likely for monster wandering, whether stupid or not)
+        prob            = 1.0 / len(monster_actions)
+
+        # consider monster moves
+        for action in monster_actions:
+            (hypth_wrld, new_character_pos, new_monster_pos)  = self.result(wrld, monster_pos, action, False)
+            val                                              += prob * self.max_node(hypth_wrld, exit, new_character_pos, new_monster_pos, True, depth)
+
+        return(val)
+
+    ##
+    # wrld [SensedWorld]: sensed world state
+    #
+    # >>> returns best action to take
+    def root_node(self, wrld):
         exit          = wrld.exitcell
         character_pos = (self.x, self.y)
-        monster_pos   = self.find_monsters(wrld)[0]
-        best_action   = (0, 0)
-        best_val      = float("-inf")
+        monsters      = self.find_monsters(wrld)
+        actions       = self.get_neighbors_8(wrld, character_pos)
+        dists         = []
+        vals          = []
 
-        for action in self.get_neighbors_8(wrld, character_pos):
+        # get closest monster and distance to it
+        for monster in monsters: dists.append(self.euclidean_distance(character_pos, monster))
+        dist_to_monster = min(dists)
+        monster_pos     = monsters[np.argmin(dists)]
+
+        # consider character actions
+        for action in actions:
             (hypth_wrld, new_character_pos, new_monster_pos) = self.result(wrld, monster_pos, action, True)
-            val                                              = self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, 1)
 
-            if(val > best_val):
-                best_val    = val
-                best_action = (action[0] - character_pos[0], action[1] - character_pos[1])
+            # run expectimax if far enough away from the closest monster, minimax otherwise
+            if(dist_to_monster < 2.83): vals.append(self.min_node(hypth_wrld, exit, new_character_pos, new_monster_pos, 1))
+            else                      : vals.append(self.chance_node(hypth_wrld, exit, new_character_pos, new_monster_pos, 1))
 
-        return(best_action)
+        best_action = actions[np.argmax(vals)]
+            
+        return(best_action[0] - character_pos[0], best_action[1] - character_pos[1])
+
 
 
     
@@ -507,11 +597,8 @@ class TestCharacter(CharacterEntity):
             self.move(path[1][0] - self.x, path[1][1] - self.y)
 
         elif self.getVariant() == 2:
-            path = self.a_star(wrld)
-
-            if(len(path) <= 1): return
-
-            self.move(path[1][0] - self.x, path[1][1] - self.y)
+            the_play = self.root_node(wrld)
+            self.move(the_play[0], the_play[1])
 
         elif self.getVariant() == 3:
             path = self.a_star(wrld)

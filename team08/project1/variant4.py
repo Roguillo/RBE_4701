@@ -21,11 +21,14 @@ g.add_monster(SelfPreservingMonster("aggressive", # name
                                     2             # detection range
 ))
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
+variant = 4
+c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
-))
+)
+c.setVariant(variant)
+# TODO Add your character
+g.add_character(c)
 
 # Run!
 g.go()

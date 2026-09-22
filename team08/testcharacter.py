@@ -37,13 +37,14 @@ class TestCharacter(CharacterEntity):
             print("MINIMAX")
 
             result = self.minimax(wrld, char, mstr, exit, minimaxDepth)
-            res = result[0]
+            res = result[0][0]
 
             path = self.aStar(wrld, char, res)
-            next = path.pop()
-            next = path.pop()
 
-            print("Next", next)
+            if path:
+                next = path.pop()
+            if path:
+                next = path.pop()
 
         else:
             print("A*")
@@ -52,10 +53,10 @@ class TestCharacter(CharacterEntity):
             next = path.pop()
             next = path.pop()
 
-
         (cx, cy) = char
         (nx, ny) = next
         (x, y) = (nx-cx, ny-cy)
+
         self.move(x, y)
 
     def findChar(self, wrld):
@@ -95,32 +96,26 @@ class TestCharacter(CharacterEntity):
         # Returns surrounding cells and values associated with each cell (dict)
 
         # Calculate monster optimal move
-        cells = self.getNeighbors8(wrld, mstr)
-
-        minVal = 999.0
-        minCell = None
-        for cell in cells:
-            dist = self.euclideanDistance(cell, char)
-
-            if dist < minVal:
-                minVal = dist
-                minCell = cell
+        mstrPath = self.aStar(wrld, mstr, char)
+        next = mstrPath.pop()
+        next = mstrPath.pop()
 
         (mx, my) = mstr
-        (nx, ny) = minCell
+        (nx, ny) = next
         (x, y) = (nx-mx, ny-my)
-
         mstr = (mstr[0]+x, mstr[1]+y)
 
         # Locate surrounding cells
-        cells = self.getNeighbors8(wrld, char)
+        charCells = self.getNeighbors8(wrld, char)
+        mstrCells = self.getNeighbors8(wrld, mstr)
+        mstrCells.append(mstr)
 
-        # Cull cells that are shared with the monster
+        # Cull cells that are shared with the monster and the cells surrounding the monster
         temp = []
-        for cell in cells:
-            if cell != mstr:
+        for cell in charCells:
+            if cell not in mstrCells:
                 temp.append(cell)
-
+            
         cells = temp
 
         # If depth is 0, return score of each surrounding cell
@@ -131,7 +126,7 @@ class TestCharacter(CharacterEntity):
                 score = len(self.aStar(wrld, cell, exit))
                 scores.append((cell, score))
 
-            return cells
+            return scores
 
         # Recursively call function
         depth -= 1

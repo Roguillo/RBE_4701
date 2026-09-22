@@ -49,11 +49,15 @@ class TestCharacter(CharacterEntity):
     def get_pos_moves(self, m, wrld):
         pos_Smoves = [[0,0]]
         curr_sMove = 0
-        for dx in [-1, 0, 1]:
+        xList = [-1, 0, 1]
+        yList = [-1, 0, 1]
+        random.shuffle(xList)
+        random.shuffle(yList)
+        for dx in xList:
             # Avoid out-of-bound indexing
             if (m.x+dx >=0) and (m.x+dx < wrld.width()):
                 # Loop through delta y
-                for dy in [-1, 0, 1]:
+                for dy in yList:
                     # Make sure the monster is moving
                     if (dx != 0) or (dy != 0):
                         # Avoid out-of-bound indexing
@@ -270,7 +274,7 @@ class TestCharacter(CharacterEntity):
         for y in range(wrld.height()):
             for x in range(wrld.width()):
                 neigh = self.get_neighbors_8(wrld, (x, y))
-                bestMove = [x-neigh[0][0], y-neigh[0][1]]
+                bestMove = [0, 0]
                 bestValue = -float("inf")
                 for n in neigh:
                     move = [n[0]-x, n[1]-y]
@@ -290,7 +294,10 @@ class TestCharacter(CharacterEntity):
                 for n in neigh:
                     possMoves.append([n[0]-x, n[1]-y])
 
-                policy[y][x] = possMoves[random.randint(0, len(possMoves)-1)]
+                if possMoves:
+                    policy[y][x] = possMoves[random.randint(0, len(possMoves)-1)]
+                else:
+                    policy[y][x] = [0, 0]
 
         for i in range(10):
             values = self.genValue(wrld, rewards, gamma, policy)
@@ -310,6 +317,22 @@ class TestCharacter(CharacterEntity):
             print(reward)
 
         p = self.policyIteration(wrld, r, 0.9)
+
+        n = []
+        for y in range(wrld.height()):
+            for x in range(wrld.width()):
+                if wrld.monsters_at(x, y):
+                    n.append([x, y])
+
+        away_from_stupid = 0
+        away_from_agress = 0
+
+        for q in range(len(n)):
+            m = wrld.monsters_at(n[q][0], n[q][1])[0]
+            if m.name == "stupid":
+                away_from_stupid = self.euclidean_distance([self.x, self.y], [n[q][0], n[q][1]])
+            else:
+                away_from_agress = self.euclidean_distance([self.x, self.y], [n[q][0], n[q][1]])
         
         bestMovement = p[self.y][self.x]
         print("Chosen Policy: " + str(bestMovement))

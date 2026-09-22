@@ -20,11 +20,14 @@ g.add_monster(StupidMonster("stupid", # name
                             3, 9      # position
 ))
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
+variant = 2
+c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
-))
+)
+c.setVariant(variant)
+# TODO Add your character
+g.add_character(c)
 
 # Run!
 g.go()

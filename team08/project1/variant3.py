@@ -9,7 +9,7 @@ from game import Game
 from monsters.selfpreserving_monster import SelfPreservingMonster
 
 # TODO This is your code!
-sys.path.insert(1, '../teamNN')
+sys.path.insert(1, '../team08')
 from testcharacter import TestCharacter
 
 # Create the game
@@ -21,11 +21,16 @@ g.add_monster(SelfPreservingMonster("selfpreserving", # name
                                     1                 # detection range
 ))
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
+variant = 3
+c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
-))
+)
+c.setVariant(variant)
+# TODO Add your character
+g.add_character(c)
+
+
 
 # Run!
 g.go()

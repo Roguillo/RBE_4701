@@ -6,200 +6,338 @@ from entity import CharacterEntity
 from colorama import Fore, Back
 from math import sqrt
 from queue import PriorityQueue
+import numpy as np
 
 class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
 
-        # Locate entities and exit coordinates
+        # Define reward values
+        self.liveReward = 0
+        self.exitReward = 100
+        self.deathReward = -999
+        self.costOfLiving = -1
+        self.discount = 0.95
+        self.learnRate = 0.5
+
+        # When moving to a new cell, immediately calculate new features and put it in weight-feature pairs
+
         char = self.findChar(wrld)
-        mstr = self.findMstr(wrld)
-        exit = wrld.exitcell
-        
-        # Determine which direction the monster is moving in
-        m = next(iter(wrld.monsters.values()))
-        self.mstrMovement = (m[0].dx, m[0].dy)
-        
-        # Define expectimax start and depth variables
-        depth = 4
-        mstrDist = 6
 
-        # Define weights for expectimax states and actions
-        self.deathCost = -999
-        self.mstrWeight = 10
-        self.exitWeight = 10
-        self.mstrChaseDist = 2.8
-        self.mstrChaseCost = 100
+        reward = self.calcReward(wrld, char)
 
-        # Use A* or expectimax depending on monster proximity
-        distToMstr = len(self.aStar(wrld, char, mstr))
-        
-        if distToMstr < mstrDist:
-            nextStep = self.expectimax(wrld, char, mstr, exit, depth)
+        wfs = self.updateWeights(wrld, wfs, char, reward)
 
-        else:
-            result = self.aStar(wrld, char, exit)
-            nextStep = result.pop()
-            nextStep = result.pop()
+        pass
 
-        # Execute best move
-        (cx, cy) = char
-        (nx, ny) = nextStep
-        (x, y) = (nx-cx, ny-cy)
-        self.move(x, y)
 
-    def evaluatePose(self, wrld, char, mstr, exit):
+
+    # ==================== Approximate Q-Learning ====================
+
+    ''' This function defines how approximate Q-learning behaves overall (i starts at 0) '''
+    def calcFeature(self, wrld, cell, featureNum):
+        match featureNum:
+
+            case 0: # Number of walls surrounding
+                return 1 / (1 + 8 - len(self.getNeighbors8(wrld, cell)))
+            
+            case 1:
+                return 0
+            
+            case _: # Default
+                return -1
+
+    def calcAllFeatures(self, wrld, cell, wfs):
         
-        # Calculate score of a state given character distance to monster and exit
-        mstrDist = self.euclideanDistance(char, mstr)
+        # Iterate through each feature
+        for i, f in enumerate(wfs):
+
+            # Update feature value
+            newF = self.calcFeature(wrld, cell, i)
+
+            wfs[i][1] = newF
+
+        return wfs
+
+    def calcReward(self, wrld, char):
+        if 
         
-        score = 0
-        score += mstrDist * self.mstrWeight
-        score -= len(self.aStar(wrld, char, exit)) * self.exitWeight
+        pass
+
+    ''' wfs [(Weight, Feature Value), ...]: Array containing weight-feature tuples '''
+    def calcQ(self, wfs):
+
+        # Q(s,a) = sum[wi*fi(s,a)]
+        qSum = 0
+
+        # Iterate through each weight-feature pair
+        for w in wfs:
+
+            # Add product of weight and feature to Q Value
+            qSum += w[0] * w[1]
+
+        pass
+
+    def calcMaxQ(self, wrld, cell, wfs):
+
+        # Get all possible moves
+        neighbors = self.getNeighbors8(wrld, cell)
+
+        # Store value of best move
+        max = float("-inf")
+
+        # Calculate Q-value of each move
+        for n in neighbors:
+
+            # Update feature values of neighboring cell and calculate Q-value
+            newWfs = self.calcAllFeatures(wrld, n, wfs)
+            qVal = self.calcQ(newWfs)
+
+            # Set max value if larger
+            if qVal > max: max = qVal
+
+        return max
+
+    def calcDelta(self, wrld, wfs, cell, reward):
+        # Calculate Difference
+        # Delta <-- [r + gamma*max_a'Q(s',a')] - Q(s,a)
+        # r = Reward
+        # gamma = Discount
+        # max_a'Q(s',a') = Max action of all possible next moves
+        # Q(s,a) = Q-value of move
+
+        gamma = self.discount
+        max_aQ = self.calcMaxQ(wrld, cell, wfs)
+        q = self.calcQ(wfs)
+
+        delta = reward + gamma * max_aQ - q
+
+        return delta
+
+    def updateWeights(self, wrld, wfs, cell, reward):
+        # Calculate Weight
+        # w_i <-- w_i + alpha * delta * f_i(s,a)
+        # w_i = Previous weight
+        # Alpha = Learning Rate
+        # Delta = Difference
+        # f_i(s,a) = Feature function
+
+        # Update each weight
+        for i, w in enumerate(wfs):
+
+            delta = self.calcDelta(wrld, wfs, cell, reward)
+            func = self.calcFeature(wrld, cell, i)
+            alpha = self.learnRate
+
+            # Update weight in wfs array
+            w[i][0] += alpha * delta * func
+
+        return wfs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # def do(self, wrld):
+
+    #     # Locate entities and exit coordinates
+    #     char = self.findChar(wrld)
+    #     mstr = self.findMstr(wrld)
+    #     exit = wrld.exitcell
         
-        # Only add this score if the monster will start deterministically chasing
-        if mstrDist < self.mstrChaseDist:
-            score -= 1 / mstrDist * self.mstrChaseCost
+    #     # Determine which direction the monster is moving in
+    #     m = next(iter(wrld.monsters.values()))
+    #     self.mstrMovement = (m[0].dx, m[0].dy)
         
-        return score
+    #     # Define expectimax start and depth variables
+    #     depth = 4
+    #     mstrDist = 6
+
+    #     # Define weights for expectimax states and actions
+    #     self.deathCost = -999
+    #     self.mstrWeight = 10
+    #     self.exitWeight = 10
+    #     self.mstrChaseDist = 2.8
+    #     self.mstrChaseCost = 100
+
+    #     # Use A* or expectimax depending on monster proximity
+    #     distToMstr = len(self.aStar(wrld, char, mstr))
+        
+    #     if distToMstr < mstrDist:
+    #         nextStep = self.expectimax(wrld, char, mstr, exit, depth)
+
+    #     else:
+    #         result = self.aStar(wrld, char, exit)
+    #         nextStep = result.pop()
+    #         nextStep = result.pop()
+
+    #     # Execute best move
+    #     (cx, cy) = char
+    #     (nx, ny) = nextStep
+    #     (x, y) = (nx-cx, ny-cy)
+    #     self.move(x, y)
+
+    # def evaluatePose(self, wrld, char, mstr, exit):
+        
+    #     # Calculate score of a state given character distance to monster and exit
+    #     mstrDist = self.euclideanDistance(char, mstr)
+        
+    #     score = 0
+    #     score += mstrDist * self.mstrWeight
+    #     score -= len(self.aStar(wrld, char, exit)) * self.exitWeight
+        
+    #     # Only add this score if the monster will start deterministically chasing
+    #     if mstrDist < self.mstrChaseDist:
+    #         score -= 1 / mstrDist * self.mstrChaseCost
+        
+    #     return score
 
     def findChar(self, wrld):
         return wrld.me(self).x, wrld.me(self).y
 
-    def findMstr(self, wrld):
-        for x in range(wrld.width()):
-            for y in range(wrld.height()):
-                if wrld.monsters_at(x, y):
-                    return (x, y)
+    # def findMstr(self, wrld):
+    #     for x in range(wrld.width()):
+    #         for y in range(wrld.height()):
+    #             if wrld.monsters_at(x, y):
+    #                 return (x, y)
 
-        return None
+    #     return None
 
-    def mstrAtWall(self, wrld, mstr):
+    # def mstrAtWall(self, wrld, mstr):
                 
-        # Define position after next move
-        x = mstr[0] + self.mstrMovement[0]*2
-        y = mstr[1] + self.mstrMovement[1]*2        
+    #     # Define position after next move
+    #     x = mstr[0] + self.mstrMovement[0]*2
+    #     y = mstr[1] + self.mstrMovement[1]*2        
         
-        # Check if next move is in a wall or barrier
-        width = wrld.width()
-        height = wrld.height()
+    #     # Check if next move is in a wall or barrier
+    #     width = wrld.width()
+    #     height = wrld.height()
         
-        # Check if next cell is a barrier
-        if (x<0 or x>width-1) or (y<0 or y>height-1) or wrld.wall_at(x, y):
-            return True
+    #     # Check if next cell is a barrier
+    #     if (x<0 or x>width-1) or (y<0 or y>height-1) or wrld.wall_at(x, y):
+    #         return True
         
-        return False
+    #     return False
     
 
-    # ======== Expectimax ========
-    def expectimax(self, wrld, char, mstr, exit, depth):
+    # # ======== Expectimax ========
+    # def expectimax(self, wrld, char, mstr, exit, depth):
         
-        # Run expectimax of all surrounding values
-        cells = self.getNeighbors8(wrld, char)
+    #     # Run expectimax of all surrounding values
+    #     cells = self.getNeighbors8(wrld, char)
 
-        maxVal = float("-inf")
-        maxCell = None
-        for cell in cells:
-            val = self.expValue(wrld, cell, mstr, exit, depth)
-            val += -len(self.aStar(wrld, cell, exit))
+    #     maxVal = float("-inf")
+    #     maxCell = None
+    #     for cell in cells:
+    #         val = self.expValue(wrld, cell, mstr, exit, depth)
+    #         val += -len(self.aStar(wrld, cell, exit))
                     
-            if val > maxVal:
-                maxVal = val
-                maxCell = cell
+    #         if val > maxVal:
+    #             maxVal = val
+    #             maxCell = cell
 
-        # Return arg max (the state/action responsible for the max value)
-        return maxCell
+    #     # Return arg max (the state/action responsible for the max value)
+    #     return maxCell
 
-    def expValue(self, wrld, char, mstr, exit, depth):
+    # def expValue(self, wrld, char, mstr, exit, depth):
         
-        # If on monster tile, return death cost
-        if char == mstr:
-            return self.deathCost
+    #     # If on monster tile, return death cost
+    #     if char == mstr:
+    #         return self.deathCost
 
-        # If at end of depth, return low value to deter overextending
-        if depth == 0:
-            return self.evaluatePose(wrld, char, mstr, exit)
+    #     # If at end of depth, return low value to deter overextending
+    #     if depth == 0:
+    #         return self.evaluatePose(wrld, char, mstr, exit)
 
-        # Set utility value = 0
-        val = 0
+    #     # Set utility value = 0
+    #     val = 0
 
-        # If within monster chasse distance, monster moves deterministically
-        if self.euclideanDistance(char, mstr) <= self.mstrChaseDist:
+    #     # If within monster chasse distance, monster moves deterministically
+    #     if self.euclideanDistance(char, mstr) <= self.mstrChaseDist:
             
-            # Calculate ideal monster move
-            x = char[0] - mstr[0]
-            y = char[1] - mstr[1]
+    #         # Calculate ideal monster move
+    #         x = char[0] - mstr[0]
+    #         y = char[1] - mstr[1]
             
-            # Clamp movement
-            x = max(-1, min(x, 1))
-            y = max(-1, min(x, 1))
+    #         # Clamp movement
+    #         x = max(-1, min(x, 1))
+    #         y = max(-1, min(x, 1))
             
-            next = (mstr[0]+x, mstr[1]+y)
+    #         next = (mstr[0]+x, mstr[1]+y)
             
-            if next == char:
-                val += self.deathCost
-            else:
-                # Value = Value + probability * maxValue(state, action)
-                val += self.expectiMaxValue(wrld, char, next, exit, depth-1)
+    #         if next == char:
+    #             val += self.deathCost
+    #         else:
+    #             # Value = Value + probability * maxValue(state, action)
+    #             val += self.expectiMaxValue(wrld, char, next, exit, depth-1)
                 
-                # Subtract from score if monster is chasing
-                val -= self.mstrChaseCost
+    #             # Subtract from score if monster is chasing
+    #             val -= self.mstrChaseCost
         
-        # If at wall, monster moves randomly in direction with probability of 1/(possible moves)
-        elif self.mstrAtWall(wrld, mstr):
+    #     # If at wall, monster moves randomly in direction with probability of 1/(possible moves)
+    #     elif self.mstrAtWall(wrld, mstr):
             
-            # For every action in the state:
-            mstrCells = self.getNeighbors8(wrld, mstr)
-            p = 1 / len(mstrCells)
-            for cell in mstrCells:
-                # Calculate probability of hitting monster for each action
-                if cell == char:
-                    val += p * self.deathCost
-                else:
-                    # Value = Value + probability * maxValue(state, action)
-                    val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
+    #         # For every action in the state:
+    #         mstrCells = self.getNeighbors8(wrld, mstr)
+    #         p = 1 / len(mstrCells)
+    #         for cell in mstrCells:
+    #             # Calculate probability of hitting monster for each action
+    #             if cell == char:
+    #                 val += p * self.deathCost
+    #             else:
+    #                 # Value = Value + probability * maxValue(state, action)
+    #                 val += p * self.expectiMaxValue(wrld, char, cell, exit, depth-1)
                     
-        # If outside two cells, monster moves deterministically
-        else:
+    #     # If outside two cells, monster moves deterministically
+    #     else:
                         
-            # Calculate next monster move
-            x = mstr[0] + self.mstrMovement[0]
-            y = mstr[1] + self.mstrMovement[1]
+    #         # Calculate next monster move
+    #         x = mstr[0] + self.mstrMovement[0]
+    #         y = mstr[1] + self.mstrMovement[1]
                         
-            next = (x, y)
+    #         next = (x, y)
             
-            if next == char:
-                val += self.deathCost
-            else:
-                # Value = Value + probability * maxValue(state, action)
-                val += self.expectiMaxValue(wrld, char, next, exit, depth-1) 
+    #         if next == char:
+    #             val += self.deathCost
+    #         else:
+    #             # Value = Value + probability * maxValue(state, action)
+    #             val += self.expectiMaxValue(wrld, char, next, exit, depth-1) 
 
-        # Return utility value
-        return val
+    #     # Return utility value
+    #     return val
 
-    def expectiMaxValue(self, wrld, char, mstr, exit, depth):
+    # def expectiMaxValue(self, wrld, char, mstr, exit, depth):
         
-        # If at exit or max depth, return utility
-        if char == exit:
-            return 1000
+    #     # If at exit or max depth, return utility
+    #     if char == exit:
+    #         return 1000
         
-        # If at end of depth, return low value to deter overextending
-        if depth == 0:
-            return self.evaluatePose(wrld, char, mstr, exit)
+    #     # If at end of depth, return low value to deter overextending
+    #     if depth == 0:
+    #         return self.evaluatePose(wrld, char, mstr, exit)
         
-        # Set utility value to -inf
-        val = float("-inf")
+    #     # Set utility value to -inf
+    #     val = float("-inf")
 
-        # For every action in the state:
-        charCells = self.getNeighbors8(wrld, char)
-        for cell in charCells:
-            # Value = max(value, expectiValue(state, action))
-            val = max(val, self.expValue(wrld, cell, mstr, exit, depth-1))
+    #     # For every action in the state:
+    #     charCells = self.getNeighbors8(wrld, char)
+    #     for cell in charCells:
+    #         # Value = max(value, expectiValue(state, action))
+    #         val = max(val, self.expValue(wrld, cell, mstr, exit, depth-1))
 
-        # Return utility value
-        return val
+    #     # Return utility value
+    #     return val
 
-    # ======== A* Calculations ========
+    # # ======== A* Calculations ========
 
     def getNeighbors8(self, wrld, cell):
 
@@ -234,51 +372,51 @@ class TestCharacter(CharacterEntity):
                     
         return cells
 
-    def euclideanDistance(self, a, b):
-        return sqrt( (a[0] - b[0])**2 + (a[1] - b[1])**2 )
+    # def euclideanDistance(self, a, b):
+    #     return sqrt( (a[0] - b[0])**2 + (a[1] - b[1])**2 )
 
-    def aStar(self, wrld, start, goal):
+    # def aStar(self, wrld, start, goal):
 
-        # Define A* variables
-        frontier    = PriorityQueue()
-        came_from   = {}
-        cost_so_far = {}
+    #     # Define A* variables
+    #     frontier    = PriorityQueue()
+    #     came_from   = {}
+    #     cost_so_far = {}
 
-        # Set start node
-        frontier.put((0, start))
-        came_from[start]   = None
-        cost_so_far[start] = 0
+    #     # Set start node
+    #     frontier.put((0, start))
+    #     came_from[start]   = None
+    #     cost_so_far[start] = 0
 
-        while not frontier.empty():
+    #     while not frontier.empty():
 
-            # Remove highest prioririty item from frontier
-            current = frontier.get()[1]
+    #         # Remove highest prioririty item from frontier
+    #         current = frontier.get()[1]
 
-            # Exit loop if at goal
-            if current == goal: break
+    #         # Exit loop if at goal
+    #         if current == goal: break
 
-            # Check neighbors of current node
-            for next in self.getNeighbors8(wrld, current):
+    #         # Check neighbors of current node
+    #         for next in self.getNeighbors8(wrld, current):
 
-                # Calculate move cost to next node
-                new_cost = cost_so_far[current] + self.euclideanDistance(current, next)
+    #             # Calculate move cost to next node
+    #             new_cost = cost_so_far[current] + self.euclideanDistance(current, next)
 
-                # If next wasn't visited or the path to next is cheaper than the existing:
-                if (next not in cost_so_far) or (new_cost < cost_so_far[next]):
+    #             # If next wasn't visited or the path to next is cheaper than the existing:
+    #             if (next not in cost_so_far) or (new_cost < cost_so_far[next]):
 
-                    # Set cost, calculate heuristic, and store in queue
-                    cost_so_far[next] = new_cost
-                    priority          = new_cost + self.euclideanDistance(goal, next)
-                    frontier.put((priority, next))
-                    came_from[next]   = current
+    #                 # Set cost, calculate heuristic, and store in queue
+    #                 cost_so_far[next] = new_cost
+    #                 priority          = new_cost + self.euclideanDistance(goal, next)
+    #                 frontier.put((priority, next))
+    #                 came_from[next]   = current
 
-        # Fill path
-        path = []
+    #     # Fill path
+    #     path = []
 
-        while current is not None:
+    #     while current is not None:
 
-            # Backtrack from current node to get to original
-            path.append(current)
-            current = came_from[current]
+    #         # Backtrack from current node to get to original
+    #         path.append(current)
+    #         current = came_from[current]
 
-        return path
+    #     return path

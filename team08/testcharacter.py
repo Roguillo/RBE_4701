@@ -7,10 +7,25 @@ from colorama import Fore, Back
 from math import sqrt
 from queue import PriorityQueue
 import numpy as np
+import os
 
 class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
+
+        # File management for reading/storing weights
+        # Found at https://www.geeksforgeeks.org/python/reading-writing-text-files-python/
+        # File pathing found at https://www.tutorialspoint.com/article/how-to-open-a-file-in-the-same-directory-as-a-python-script
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(base_dir, 'weights.txt')
+        f1 = open(file_path, "r") # Read
+
+        # Store weights in wfs array
+        wfs = []
+        line = f1.readline()
+        while line is not "":
+            wfs.append((float(line), None))
+            line = f1.readline()
 
         # Define reward values
         self.liveReward = 0
@@ -18,18 +33,22 @@ class TestCharacter(CharacterEntity):
         self.deathReward = -999
         self.costOfLiving = -1
         self.discount = 0.95
-        self.learnRate = 0.5
+        self.learnRate = 0.01
 
-        # When moving to a new cell, immediately calculate new features and put it in weight-feature pairs
-
+        # Calculate new features and put it in weight-feature pairs
         char = self.findChar(wrld)
+        wfs = self.calcAllFeatures(wrld, char, wfs)
 
+        # Calculate reward of current pose
         reward = self.calcReward(wrld, char)
 
+        # Update all weights
         wfs = self.updateWeights(wrld, wfs, char, reward)
 
-        pass
-
+        # Store weights in file
+        f1 = open(file_path, "w") # Write
+        for w in wfs:
+            f1.write(f"{w[0]}\n")
 
 
     # ==================== Approximate Q-Learning ====================
@@ -42,10 +61,10 @@ class TestCharacter(CharacterEntity):
                 return 1 / (1 + 8 - len(self.getNeighbors8(wrld, cell)))
             
             case 1:
-                return 0
+                return 0.5
             
             case _: # Default
-                return -1
+                return 0
 
     def calcAllFeatures(self, wrld, cell, wfs):
         
@@ -55,14 +74,20 @@ class TestCharacter(CharacterEntity):
             # Update feature value
             newF = self.calcFeature(wrld, cell, i)
 
-            wfs[i][1] = newF
+            wfs[i] = (wfs[i][0], newF)
 
         return wfs
 
     def calcReward(self, wrld, char):
-        if 
-        
-        pass
+        mstr = self.findMstr(wrld)
+        exit = wrld.exitcell
+
+        if char == mstr:
+            return self.deathReward - self.costOfLiving
+        elif char == exit:
+            return self.exitReward - self.costOfLiving
+        else:
+            return self.liveReward - self.costOfLiving
 
     ''' wfs [(Weight, Feature Value), ...]: Array containing weight-feature tuples '''
     def calcQ(self, wfs):
@@ -76,7 +101,7 @@ class TestCharacter(CharacterEntity):
             # Add product of weight and feature to Q Value
             qSum += w[0] * w[1]
 
-        pass
+        return qSum
 
     def calcMaxQ(self, wrld, cell, wfs):
 
@@ -84,7 +109,7 @@ class TestCharacter(CharacterEntity):
         neighbors = self.getNeighbors8(wrld, cell)
 
         # Store value of best move
-        max = float("-inf")
+        max = -999.0
 
         # Calculate Q-value of each move
         for n in neighbors:
@@ -130,7 +155,9 @@ class TestCharacter(CharacterEntity):
             alpha = self.learnRate
 
             # Update weight in wfs array
-            w[i][0] += alpha * delta * func
+            wi = w[0] + alpha * delta * func
+
+            wfs[i] = (wi, w[1])
 
         return wfs
 
@@ -204,13 +231,13 @@ class TestCharacter(CharacterEntity):
     def findChar(self, wrld):
         return wrld.me(self).x, wrld.me(self).y
 
-    # def findMstr(self, wrld):
-    #     for x in range(wrld.width()):
-    #         for y in range(wrld.height()):
-    #             if wrld.monsters_at(x, y):
-    #                 return (x, y)
+    def findMstr(self, wrld):
+        for x in range(wrld.width()):
+            for y in range(wrld.height()):
+                if wrld.monsters_at(x, y):
+                    return (x, y)
 
-    #     return None
+        return None
 
     # def mstrAtWall(self, wrld, mstr):
                 

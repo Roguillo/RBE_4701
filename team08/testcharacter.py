@@ -34,11 +34,7 @@ class TestCharacter(CharacterEntity):
         self.costOfLiving = -1
         self.discount = 0.95
         self.learnRate = 0.01
-
-
-        
-    # TODO: Implement this process
-        
+                
         # Find all possible moves
         moves = self.findMoves(wrld)
         
@@ -74,6 +70,7 @@ class TestCharacter(CharacterEntity):
         reward = self.calcReward(wrld, char)
 
         # Update all weights
+        # TODO: Same as above, figure out if prev or new
         wfs = self.updateWeights(wrld, wfs, char, reward)
 
         # Store weights in file

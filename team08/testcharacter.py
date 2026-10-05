@@ -35,11 +35,42 @@ class TestCharacter(CharacterEntity):
         self.discount = 0.95
         self.learnRate = 0.01
 
+
+        
+    # TODO: Implement this process
+        
+        # Find all possible moves
+        moves = self.findMoves(wrld)
+        
+        # Calculate Q-value of each possible action
+        maxQ = -999.0
+        bestMove = None
+        for m in moves:
+            # TODO: Adjust calcQ to include bomb location if bomb is placed (change m[0] to m)
+            qVal = self.calcMaxQ(wrld, m[0], wfs)
+            if qVal > maxQ:
+                maxQ = qVal
+                bestMove = m
+            
+        # TODO: At random, pick a random action so the agent keeps exploring
+        
+        # Take the action with the highest value
+        # Place bomb if bomb flag is true
+        if bestMove[1] == True:
+            CharacterEntity.place_bomb()
+        
+        x = bestMove[0][0] - char[0]
+        y = bestMove[0][1] - char[0]
+        
+        self.move(x, y)
+
         # Calculate new features and put it in weight-feature pairs
+        # TODO: Find out if this should be calculated based on prev or new position
         char = self.findChar(wrld)
         wfs = self.calcAllFeatures(wrld, char, wfs)
 
         # Calculate reward of current pose
+        # TODO: Same as above, figure out if prev or new
         reward = self.calcReward(wrld, char)
 
         # Update all weights
@@ -49,6 +80,25 @@ class TestCharacter(CharacterEntity):
         f1 = open(file_path, "w") # Write
         for w in wfs:
             f1.write(f"{w[0]}\n")
+
+
+    def findMoves(self, wrld):
+        # Determine all possible actions (do nothing, place bomb, move in all 8 directions, or move and place bomb)
+        moves = []
+        char = self.findChar(wrld)
+        bomb = self.findBomb(wrld) # Check if bomb exists (cannot place new bomb)
+
+        # Identify possible neighboring moves
+        neighbors = self.getNeighbors8(wrld, char)
+        
+        # Add moves to do nothing and place bomb
+        moves.append(char, False) # Stay still, don't place bomb
+        if bomb is not None: moves.append(char, True) # Stay still, place bomb
+        
+        # Add moves for all neighbors
+        for n in neighbors:
+            moves.append(n, False)
+            if bomb is not None: moves.append(n, True)
 
 
     # ==================== Approximate Q-Learning ====================
@@ -237,6 +287,14 @@ class TestCharacter(CharacterEntity):
                 if wrld.monsters_at(x, y):
                     return (x, y)
 
+        return None
+    
+    def findBomb(self, wrld):
+        for x in range(wrld.width()):
+            for y in range(wrld.height()):
+                if wrld.bomb_at(x, y):
+                    return (x, y)
+        
         return None
 
     # def mstrAtWall(self, wrld, mstr):

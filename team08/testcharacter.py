@@ -6,6 +6,7 @@ from queue import PriorityQueue
 sys.path.insert(0, '../bomberman')
 # Import necessary stuff
 from entity import CharacterEntity
+from sensed_world import SensedWorld 
 from colorama import Fore, Back
 
 class TestCharacter(CharacterEntity):
@@ -14,8 +15,10 @@ class TestCharacter(CharacterEntity):
     wM = -1
     wX = -2
 
+    curiosity = 0.3
+
     rows, cols = (8*19, 9)
-    qValues = [[0]*cols] * rows
+    qValues = [[0] * 9 for _ in range(rows)]
 
 
 
@@ -142,7 +145,244 @@ class TestCharacter(CharacterEntity):
         path.reverse()
         return(path)
 
-    def genSpaceReward(self, wrld, path):
+
+
+    def genFeature(self, featNum, wrld, me):
+        match featNum:
+            case 0:
+                exit = self.find_exit(wrld)
+                dist = math.sqrt((exit[1] - me.x)*(exit[1] - me.x) + (exit[0] - me.y)*(exit[0] - me.y))
+                return 1/((dist)+1)
+            case 1:
+                exit = self.find_monster(wrld)
+                dist = 0
+                try:
+                    dist = math.sqrt((exit[1] - me.x)*(exit[1] - me.x) + (exit[0] - me.y)*(exit[0] - me.y))
+                except:
+                    print("No monster")
+                return 1/((dist)+1)
+            case 2:
+                exit = self.find_explosion(wrld)
+                dist = 0
+                try:
+                    dist = math.sqrt((exit[1] - me.x)*(exit[1] - me.x) + (exit[0] - me.y)*(exit[0] - me.y))
+                except:
+                    print("")
+                return 1/((dist)+1)
+            case 3:
+                return 1/(()+1)
+        
+
+    def getBestQValue(self, char, wrld, qValues):
+        posMoves = self.get_pos_moves(char, wrld)
+        bestMove = [0, 0]
+        bestValue = -999
+        for move in posMoves:
+            moveValue = -999
+            match move:
+                case [-1,-1]:
+                     moveValue = qValues[char.y*8+char.x][0]
+                case [0,-1]:
+                     moveValue = qValues[char.y*8+char.x][1]
+                case [1,-1]:
+                     moveValue = qValues[char.y*8+char.x][2]
+                case [-1,0]:
+                     moveValue = qValues[char.y*8+char.x][3]
+                case [1,0]:
+                     moveValue = qValues[char.y*8+char.x][4]
+                case [-1,1]:
+                     moveValue = qValues[char.y*8+char.x][5]
+                case [0,1]:
+                     moveValue = qValues[char.y*8+char.x][6]
+                case [1,1]:
+                     moveValue = qValues[char.y*8+char.x][7]
+                case [0,0]:
+                     moveValue = qValues[char.y*8+char.x][8]
+            if moveValue > bestValue:
+                bestMove = move
+                bestValue = moveValue
+            elif moveValue == bestValue and random.random() < 0.5:
+                bestMove = move
+        return bestValue
+
+    def getBestQValueMove(self, char, wrld, qValues):
+            posMoves = self.get_pos_moves(char, wrld)
+            bestMove = [0, 0]
+            bestValue = -999
+            for move in posMoves:
+                moveValue = -999
+                match move:
+                    case [-1,-1]:
+                         moveValue = qValues[char.y*8+char.x][0]
+                    case [0,-1]:
+                         moveValue = qValues[char.y*8+char.x][1]
+                    case [1,-1]:
+                         moveValue = qValues[char.y*8+char.x][2]
+                    case [-1,0]:
+                         moveValue = qValues[char.y*8+char.x][3]
+                    case [1,0]:
+                         moveValue = qValues[char.y*8+char.x][4]
+                    case [-1,1]:
+                         moveValue = qValues[char.y*8+char.x][5]
+                    case [0,1]:
+                         moveValue = qValues[char.y*8+char.x][6]
+                    case [1,1]:
+                         moveValue = qValues[char.y*8+char.x][7]
+                    case [0,0]:
+                         moveValue = qValues[char.y*8+char.x][8]
+                if moveValue > bestValue:
+                    bestMove = move
+                    bestValue = moveValue
+                elif moveValue == bestValue and random.random() < 0.5:
+                    bestMove = move
+            return bestMove
+
+
+
+
+    
+
+    def approximateQLearning(self, wrld, qValues, alpha):     
+        for i in range(10):
+            print("Agents number " + str(i))
+            (x, y) = (self.x, self.y)
+            newwrld = SensedWorld.from_world(wrld)
+            events = newwrld.events
+
+            print("REAL AGENT:", self.x, self.y)
+            print("WORLD SIZE:", newwrld.width(), newwrld.height())
+            print("CHARACTERS AT:", x, y)
+            print("RESULT:", newwrld.characters_at(self.x, self.y))
+
+            players = newwrld.characters_at(x, y)
+
+            if players is None:
+                print("ERROR: No player at expected position!")
+                return [0, 0]
+
+            newPlayer = players[0]
+            dead = False
+            gamma = 0.9
+            moves = 0
+            while not(dead) and moves < 20:    
+                eF = self.genFeature(0, newwrld, newPlayer)
+                mF = self.genFeature(1, newwrld, newPlayer)
+                xF = self.genFeature(2, newwrld, newPlayer)
+                posMoves = self.get_pos_moves(newPlayer, newwrld)
+                if self.curiosity < random.random():
+                    moveSelection = random.randint(0, len(posMoves)-1)
+                    a = posMoves[moveSelection]
+                else:
+                    a = self.getBestQValueMove(newPlayer, newwrld, qValues)
+
+                (old_x, old_y) = (newPlayer.x, newPlayer.y)
+                newPlayer.move(a[0], a[1])
+                (new_x, new_y) = (newPlayer.x, newPlayer.y)
+
+                reward = -1
+                for event in events:
+                    if event.tpe == event.CHARACTER_FOUND_EXIT:
+                        reward = 500
+                        dead = True
+                    elif event.tpe == event.CHARACTER_KILLED_BY_MONSTER:
+                        reward = -1000
+                        dead = True
+                    elif event.tpe == event.BOMB_HIT_CHARACTER:
+                        reward = -1500
+                        dead = True
+                match a:
+                    case [-1,-1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][0]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][0] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [0,-1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][1]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][1] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [1,-1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][2]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][2] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [-1,0]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][3]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][3] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [1,0]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][4]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][4] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [-1,1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][5]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][5] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [0,1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][6]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][6] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [1,1]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][7]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][7] = self.wE*eF + self.wM*mF + self.wX*xF
+                    case [0,0]:
+                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][8]
+                        self.wE = self.wE + (alpha*delta*eF)
+                        self.wM = self.wM + (alpha*delta*mF)
+                        self.wX = self.wX + (alpha*delta*xF)
+                        qValues[y*8+x][8] = self.wE*eF + self.wM*mF + self.wX*xF
+                        newPlayer.place_bomb()
+
+                moves += 1
+                (x, y) = (new_x, new_y)
+                
+
+            print("Q-Values after move:")
+            for i in range(len(self.qValues)):
+                print(self.qValues[i])
+
+        return self.getBestQValueMove(self, wrld, qValues)
+
+
+    
+    def do(self, wrld):
+        # Your code here
+        exit = self.find_exit(wrld)
+        path = self.a_star(wrld, (self.x, self.y), exit)
+
+
+        p = self.approximateQLearning(wrld, self.qValues, 0.9)
+
+
+        bestMovement = p
+
+        if(bestMovement == [0, 0]):
+            self.place_bomb()
+            print("Placed bomb")
+        else:
+            if(len(path) <= 5):
+                bestMovement = [path[1][0] - self.x, path[1][1] - self.y]
+            print(bestMovement)
+            self.move(bestMovement[0], bestMovement[1])
+
+
+    """
+    
+        def genSpaceReward(self, wrld, path):
         p = [[0 for _ in range(8)] for _ in range(19)]
         value = 0
         for v in path:
@@ -204,186 +444,9 @@ class TestCharacter(CharacterEntity):
                         p[my3][mx3] = -5
             
         return p
-
-
-
-    def genFeature(self, featNum, wrld, me):
-        match featNum:
-            case 0:
-                exit = self.find_exit(self, wrld)
-                dist = math.sqrt((exit[1] - me.x)^2 + (exit[0] - me.y)^2)
-                return 1/((dist)+1)
-            case 1:
-                exit = self.find_monster(self, wrld)
-                dist = 0
-                try:
-                    dist = math.sqrt((exit[1] - me.x)^2 + (exit[0] - me.y)^2)
-                except:
-                    print("No monster")
-                return 1/((dist)+1)
-            case 2:
-                exit = self.find_explosion(self, wrld)
-                dist = 0
-                try:
-                    dist = math.sqrt((exit[1] - me.x)^2 + (exit[0] - me.y)^2)
-                except:
-                    print("No explosion")
-                return 1/((dist)+1)
-            case 3:
-                return 1/(()+1)
-        
-
-    def getBestQValue(self, char, wrld, qValues):
-        posMoves = self.get_pos_moves(char, wrld)
-        bestMove = [0, 0]
-        bestValue = -999
-        for move in posMoves:
-            moveValue = -999
-            match move:
-                case [-1,-1]:
-                     moveValue = qValues[(char.x*8)+char.y][0]
-                case [0,-1]:
-                     moveValue = qValues[(char.x*8)+char.y][1]
-                case [1,-1]:
-                     moveValue = qValues[(char.x*8)+char.y][2]
-                case [-1,0]:
-                     moveValue = qValues[(char.x*8)+char.y][3]
-                case [1,0]:
-                     moveValue = qValues[(char.x*8)+char.y][4]
-                case [-1,1]:
-                     moveValue = qValues[(char.x*8)+char.y][5]
-                case [0,1]:
-                     moveValue = qValues[(char.x*8)+char.y][6]
-                case [1,1]:
-                     moveValue = qValues[(char.x*8)+char.y][7]
-                case [0,0]:
-                     moveValue = qValues[(char.x*8)+char.y][8]
-            if moveValue > bestValue:
-                bestMove = move
-                bestValue = moveValue
-        return bestValue
-
-    def getBestQValueMove(self, char, wrld, qValues):
-            posMoves = self.get_pos_moves(char, wrld)
-            bestMove = [0, 0]
-            bestValue = -999
-            for move in posMoves:
-                moveValue = -999
-                match move:
-                    case [-1,-1]:
-                         moveValue = qValues[(char.x*8)+char.y][0]
-                    case [0,-1]:
-                         moveValue = qValues[(char.x*8)+char.y][1]
-                    case [1,-1]:
-                         moveValue = qValues[(char.x*8)+char.y][2]
-                    case [-1,0]:
-                         moveValue = qValues[(char.x*8)+char.y][3]
-                    case [1,0]:
-                         moveValue = qValues[(char.x*8)+char.y][4]
-                    case [-1,1]:
-                         moveValue = qValues[(char.x*8)+char.y][5]
-                    case [0,1]:
-                         moveValue = qValues[(char.x*8)+char.y][6]
-                    case [1,1]:
-                         moveValue = qValues[(char.x*8)+char.y][7]
-                    case [0,0]:
-                         moveValue = qValues[(char.x*8)+char.y][8]
-                if moveValue > bestValue:
-                    bestMove = move
-                    bestValue = moveValue
-            return bestMove
-
-
-
-
     
-
-    def approximateQLearning(self, wrld, qValues, alpha):     
-        for i in range(10):
-            (x, y) = (self.x, self.y)
-            (newwrld,events) = wrld.next()
-            dead = False
-            gamma = 0.9
-            moves = 0
-            while not(dead):
-                newPlayer = newwrld.characters_at(x, y)
-                eF = self.genFeature(0, newwrld, newPlayer)
-                mF = self.genFeature(1, newwrld, newPlayer)
-                xF = self.genFeature(2, newwrld, newPlayer)
-                posMoves = self.get_pos_moves(newPlayer, newwrld)
-                moveSelection = random.randint(0, len(posMoves)-1)
-                a = posMoves[moveSelection]
-                newPlayer.move(a[0], a[1])
-                (x2, y2) = (x + a[0], y + a[1])
-                reward = -1
-                for event in events:
-                    if event.tpe == event.CHARACTER_FOUND_EXIT:
-                        reward = 500
-                        dead = True
-                    elif event.tpe == event.CHARACTER_KILLED_BY_MONSTER:
-                        reward = -1000
-                        dead = True
-                    elif event.tpe == event.BOMB_HIT_CHARACTER:
-                        reward = -1500
-                        dead = True
-                delta = (reward + (gamma^moves)(self.getBestQValue(newPlayer, newwrld, self.qValues))) - qValues[0][(x2*8)+y2]
-                wE = wE + (alpha*delta*eF)
-                wM = wM + (alpha*delta*mF)
-                wX = wX + (alpha*delta*xF)
-                match a:
-                    case [-1,-1]:
-                        qValues[(x2*8)+y2][0] = wE*eF + wM*mF + wX*xF
-                    case [0,-1]:
-                        qValues[(x2*8)+y2][1] = wE*eF + wM*mF + wX*xF
-                    case [1,-1]:
-                        qValues[(x2*8)+y2][2] = wE*eF + wM*mF + wX*xF
-                    case [-1,0]:
-                        qValues[(x2*8)+y2][3] = wE*eF + wM*mF + wX*xF
-                    case [1,0]:
-                        qValues[(x2*8)+y2][4] = wE*eF + wM*mF + wX*xF
-                    case [-1,1]:
-                        qValues[(x2*8)+y2][5] = wE*eF + wM*mF + wX*xF
-                    case [0,1]:
-                        qValues[(x2*8)+y2][6] = wE*eF + wM*mF + wX*xF
-                    case [1,1]:
-                        qValues[(x2*8)+y2][7] = wE*eF + wM*mF + wX*xF
-                    case [0,0]:
-                        qValues[(x2*8)+y2][8] = wE*eF + wM*mF + wX*xF
-                        newPlayer.place_bomb()
-
-        return self.getBestQValueMove(self, wrld, qValues)
-
-
     
-    def do(self, wrld):
-        # Your code here
-        exit = self.find_exit(wrld)
-        path = self.a_star(wrld, (self.x, self.y), exit)
-
-        print("Q-Values before move:")
-        for i in range(len(self.qValues)):
-            print(self.qValues[i])
-
-
-        p = self.approximateQLearning(wrld, self.qValues, 0.9)
-
-        print("Q-Values after move:")
-        for i in range(len(self.qValues)):
-            print(self.qValues[i])
-
-        bestMovement = p[self.y][self.x]
-
-        if(bestMovement == [0, 0]):
-            self.place_bomb()
-            print("Placed bomb")
-        else:
-            if(len(path) <= 5):
-                bestMovement = [path[1][0] - self.x, path[1][1] - self.y]
-            print(bestMovement)
-            self.move(bestMovement[0], bestMovement[1])
-
-
-    """def genPolicy(self, wrld, rewards):
+    def genPolicy(self, wrld, rewards):
         policy = [[0 for _ in range(8)] for _ in range(19)]
         for y in range(wrld.height()):
             for x in range(wrld.width()):

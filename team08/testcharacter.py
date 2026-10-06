@@ -1,12 +1,11 @@
-import math
 import sys
 
 sys.path.insert(0, '../bomberman')
 
 from collections import deque
 
-import numpy as np
 from entity import CharacterEntity  # type: ignore
+from sensed_world import SensedWorld  # type: ignore
 
 
 class TestCharacter(CharacterEntity):
@@ -20,9 +19,10 @@ class TestCharacter(CharacterEntity):
     alpha   = 0.5 # learning rate
     epsilon = 0.1 # curiosity meter
 
-    # previous feature state and reward
+    # previous feature state, reward, and q-state
     prev_character_state = {}
     prev_reward          = 0.0
+    prev_q_state         = 0.0
 
     ###
     # wrld: the world
@@ -59,8 +59,8 @@ class TestCharacter(CharacterEntity):
     def get_wrld_state(self, wrld):
         character_object = wrld.me(self)
         monster_cells    = set()
-        bomb_cell        = ()
-        bomb_timer       = 0
+        bomb_cell        = None
+        bomb_timer       = None
         explosion_cells  = set()
         wrld_state       = {}
 
@@ -72,14 +72,15 @@ class TestCharacter(CharacterEntity):
             bomb_cell  = (bomb_object.x, bomb_object.y)
             bomb_timer = bomb_object.timer
 
-        for explosion_cell in wrld.explosions.values(): explosion_cells.add((explosion_cell.x, explosion_cell.y))
+        for explosion_cell in wrld.explosions.values():
+            explosion_cells.add((explosion_cell.x, explosion_cell.y))
 
-        wrld_state["character"]       = (character_object.x, character_object.y)
-        wrld_state["exit_cell"]       = wrld.exitcell
+        wrld_state["character cell"]  = (character_object.x, character_object.y)
+        wrld_state["exit cell"]       = wrld.exitcell
         wrld_state["monsters"]        = monster_cells
-        wrld_state["bomb"]            = bomb_cell
+        wrld_state["bomb cell"]       = bomb_cell
         wrld_state["bomb timer"]      = bomb_timer
-        wrld_state["explosion cells"] = wrld.explosions
+        wrld_state["explosion cells"] = explosion_cells
         wrld_state["explosion range"] = wrld.expl_range
 
         return(wrld_state)
@@ -91,7 +92,7 @@ class TestCharacter(CharacterEntity):
     def get_dangerous_cells(self, wrld_state):
         bomb_escape_time       = 3
 
-        bomb_cell              = wrld_state["bomb"]
+        bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
         explosion_range        = wrld_state["explosion range"]
         dangerous_cells        = []
@@ -113,8 +114,8 @@ class TestCharacter(CharacterEntity):
     # start_cell   : cell to start from
     # blocked_cells: cells to exclude from search
     #
-    # >>> returns Look-Up Grid of reachable cell positions and distances from start cell
-    def bfs_lug(self, wrld, start_cell, blocked_cells):
+    # >>> returns Look-Up Grid of reachable cell positions and distances from start cell, excluding given blocked cells
+    def get_lug(self, wrld, start_cell, blocked_cells):
         blocked_cells_set = set(blocked_cells)
         blocked_cells_set.discard(start_cell)
 
@@ -133,27 +134,54 @@ class TestCharacter(CharacterEntity):
         return(cell_distances)
 
     # return a list of legal cells and whether a bomb can be placed for each one
-    def legal_actions(self, wrld, wrld_state):
-        pass
+    def get_legal_actions(self, wrld, wrld_state):
+        neighbors     = self.get_neighbors_of_8(wrld, wrld_state["character cell"])
+        bomb_ready    = wrld_state["bomb cell"] is None
+        legal_actions = []
+
+        for neighbor in neighbors:
+            if(neighbor != wrld_state["bomb cell"]):
+                legal_actions.append((neighbor, False))
+                if(bomb_ready): legal_actions.append((neighbor, True))
+
+        return(legal_actions)
 
     # return the hypothetical result of applying a given action in the given world
     def do_hypth_action(self, wrld, action):
-        pass
+        (target_cell, place_bomb) = action
+        hypth_wrld                = SensedWorld.from_world(wrld)
+        hypth_character           = hypth_wrld.me(self)
+
+        hypth_character.move(target_cell[0] - hypth_character.x, target_cell[1] - hypth_character.y)
+        if(place_bomb): hypth_character.place_bomb()
+
+        return(hypth_wrld.next())
 
     # returns a reward value given hypothetical world events and cost of living
-    def get_reward(self, hypth_wrld, events):
-        pass
+    def get_reward(self, events):
+        reward = -1
+
+        for event in events:
+            if  (event.tpe == event.BOMB_HIT_WALL)                   : reward += 5
+            elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 20
+            elif(
+                 (event.tpe == event.BOMB_HIT_CHARACTER)          or
+                 (event.tpe == event.CHARACTER_KILLED_BY_MONSTER)
+                )                                                    : return(-100, True)
+            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return(100, True)
+
+        return(reward, False)
 
     # return a dictionary with feature names as keys and values as values
     def extract_features(self, hypth_wrld, events):
         pass
 
     # return the result of applying the weighted sum of all features values
-    def q_state(self, character_state):
+    def get_q_state(self, character_state):
         pass
 
     # returns a list of actiones with their respective scores
-    def action_scores(self, wrld):
+    def get_action_scores(self, wrld, actions):
         pass
 
     # return the chosen action, which will either be the best one according to what is known, or a random one depending on how high/low epsilon is
@@ -182,9 +210,8 @@ class TestCharacter(CharacterEntity):
     # actually move + place or don't place a bomb
     # when the game ends, update the external weights.  Still need to decide how/when that should be handled
     def do(self, wrld): 
-        wrld_state = self.get_wrld_state(wrld)
+        wrld_state        = self.get_wrld_state(wrld)
+        legal_actions     = self.get_legal_actions(wrld, wrld_state)
+        (_, hypth_events) = self.do_hypth_action(wrld, legal_actions[0])
 
-        start_cell    = (self.x, self.y)
-        blocked_cells = self.get_dangerous_cells(wrld_state)
-
-        print(self.bfs_lut(wrld, start_cell, blocked_cells))
+        print(hypth_events)

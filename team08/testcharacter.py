@@ -31,7 +31,7 @@ class TestCharacter(CharacterEntity):
     wX = -5
     wB = -4
     wW = 3
-    weights = [[1.0, -2.0, -5.0, -4.0, 3.0] for _ in range(9)]
+
 
     curiosity = 0.3
 
@@ -67,6 +67,16 @@ class TestCharacter(CharacterEntity):
                 if(wrld.explosion_at(x, y)): return((x, y))
 
         return(None)
+
+    def nextToWall(self, m, wrld):
+        for dx in [-1, 0, 1]:
+            if (m.x+dx >=0) and (m.x+dx < wrld.width()):
+                for dy in [-1, 0, 1]:
+                    if (dx != 0) or (dy != 0):
+                        if (m.y+dy >=0) and (m.y+dy < wrld.height()):
+                            if wrld.wall_at(m.x+dx, m.y+dy):
+                                return 1
+        return 0
 
     def get_pos_moves(self, m, wrld):
         pos_Smoves = []
@@ -334,6 +344,13 @@ class TestCharacter(CharacterEntity):
                 except:
                     pass
                 return 1/((dist)+1)
+            case 5:
+                dist = 0
+                try:
+                    dist = self.nextToWall(wrld, me)
+                except:
+                    pass
+                return 1/((dist)+1)
         
 
     def getBestQValue(self, char, wrld, qValues):
@@ -427,6 +444,7 @@ class TestCharacter(CharacterEntity):
                 xF = self.genFeature(2, newwrld, newPlayer)
                 wF = self.genFeature(3, newwrld, newPlayer)
                 bF = self.genFeature(4, newwrld, newPlayer)
+                nF = self.genFeature(5, newwrld, newPlayer)
                 posMoves = self.get_pos_moves(newPlayer, newwrld)
                 if random.random() < self.curiosity:
                     moveSelection = random.randint(0, len(posMoves)-1)
@@ -440,56 +458,58 @@ class TestCharacter(CharacterEntity):
                 reward = rewards[new_y][new_x]
                 for event in events:
                     if event.tpe == 4:
-                        reward = 500
+                        reward = 1000
                         dead = True
                     elif event.tpe == 3:
                         reward = -1000
                         dead = True
                     elif event.tpe == 2:
-                        reward = -15000
+                        reward = -1000
                         dead = True
                     elif event.tpe == 1:
-                        reward = 1000
+                        reward = 10000
                     elif event.tpe == 0:
-                        reward = 600
+                        reward = 500
+                if (self.nextToWall == 1 and a == [0, 0]):
+                    reward = 100
                     
                 match a:
                     case [-1,-1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][0]
-                        self.weights[0] = [self.weights[0][0] + (alpha*delta*eF), self.weights[0][1] + (alpha*delta*mF), self.weights[0][2] + (alpha*delta*xF), self.weights[0][3] + (alpha*delta*bF), self.weights[0][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][0] = self.weights[0][0]*eF + self.weights[0][1]*mF + self.weights[0][2]*xF + self.weights[0][3]*bF + self.weights[0][4]*wF
+                        self.weights[0] = [self.weights[0][0] + (alpha*delta*eF), self.weights[0][1] + (alpha*delta*mF), self.weights[0][2] + (alpha*delta*xF), self.weights[0][3] + (alpha*delta*bF), self.weights[0][4] + (alpha*delta*wF), self.weights[0][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][0] = self.weights[0][0]*eF + self.weights[0][1]*mF + self.weights[0][2]*xF + self.weights[0][3]*bF + self.weights[0][4]*wF + self.weights[0][5]*nF
                     case [0,-1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][1]
-                        self.weights[1] = [self.weights[1][0] + (alpha*delta*eF), self.weights[1][1] + (alpha*delta*mF), self.weights[1][2] + (alpha*delta*xF), self.weights[1][3] + (alpha*delta*bF), self.weights[1][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][1] = self.weights[1][0]*eF + self.weights[1][1]*mF + self.weights[1][2]*xF + self.weights[1][3]*bF + self.weights[1][4]*wF
+                        self.weights[1] = [self.weights[1][0] + (alpha*delta*eF), self.weights[1][1] + (alpha*delta*mF), self.weights[1][2] + (alpha*delta*xF), self.weights[1][3] + (alpha*delta*bF), self.weights[1][4] + (alpha*delta*wF), self.weights[1][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][1] = self.weights[1][0]*eF + self.weights[1][1]*mF + self.weights[1][2]*xF + self.weights[1][3]*bF + self.weights[1][4]*wF + self.weights[1][5]*nF 
                     case [1,-1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][2]
-                        self.weights[2] = [self.weights[2][0] + (alpha*delta*eF), self.weights[2][1] + (alpha*delta*mF), self.weights[2][2] + (alpha*delta*xF), self.weights[2][3] + (alpha*delta*bF), self.weights[2][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][2] = self.weights[2][0]*eF + self.weights[2][1]*mF + self.weights[2][2]*xF + self.weights[2][3]*bF + self.weights[2][4]*wF
+                        self.weights[2] = [self.weights[2][0] + (alpha*delta*eF), self.weights[2][1] + (alpha*delta*mF), self.weights[2][2] + (alpha*delta*xF), self.weights[2][3] + (alpha*delta*bF), self.weights[2][4] + (alpha*delta*wF), self.weights[2][5] + (alpha*delta*wF)]
+                        qValues[old_y*8+old_x][2] = self.weights[2][0]*eF + self.weights[2][1]*mF + self.weights[2][2]*xF + self.weights[2][3]*bF + self.weights[2][4]*wF  + self.weights[2][5]*nF
                     case [-1,0]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][3]
-                        self.weights[3] = [self.weights[3][0] + (alpha*delta*eF), self.weights[3][1] + (alpha*delta*mF), self.weights[3][2] + (alpha*delta*xF), self.weights[3][3] + (alpha*delta*bF), self.weights[3][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][3] = self.weights[3][0]*eF + self.weights[3][1]*mF + self.weights[3][2]*xF + self.weights[3][3]*bF + self.weights[3][4]*wF
+                        self.weights[3] = [self.weights[3][0] + (alpha*delta*eF), self.weights[3][1] + (alpha*delta*mF), self.weights[3][2] + (alpha*delta*xF), self.weights[3][3] + (alpha*delta*bF), self.weights[3][4] + (alpha*delta*wF), self.weights[3][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][3] = self.weights[3][0]*eF + self.weights[3][1]*mF + self.weights[3][2]*xF + self.weights[3][3]*bF + self.weights[3][4]*wF + self.weights[3][5]*nF
                     case [1,0]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][4]
-                        self.weights[4] = [self.weights[4][0] + (alpha*delta*eF), self.weights[4][1] + (alpha*delta*mF), self.weights[4][2] + (alpha*delta*xF), self.weights[4][3] + (alpha*delta*bF), self.weights[4][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][4] = self.weights[4][0]*eF + self.weights[4][1]*mF + self.weights[4][2]*xF + self.weights[4][3]*bF + self.weights[4][4]*wF
+                        self.weights[4] = [self.weights[4][0] + (alpha*delta*eF), self.weights[4][1] + (alpha*delta*mF), self.weights[4][2] + (alpha*delta*xF), self.weights[4][3] + (alpha*delta*bF), self.weights[4][4] + (alpha*delta*wF), self.weights[4][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][4] = self.weights[4][0]*eF + self.weights[4][1]*mF + self.weights[4][2]*xF + self.weights[4][3]*bF + self.weights[4][4]*wF + self.weights[4][5]*nF
                     case [-1,1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][5]
-                        self.weights[5] = [self.weights[5][0] + (alpha*delta*eF), self.weights[5][1] + (alpha*delta*mF), self.weights[5][2] + (alpha*delta*xF), self.weights[5][3] + (alpha*delta*bF), self.weights[5][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][5] = self.weights[5][0]*eF + self.weights[5][1]*mF + self.weights[5][2]*xF + self.weights[5][3]*bF + self.weights[5][4]*wF
+                        self.weights[5] = [self.weights[5][0] + (alpha*delta*eF), self.weights[5][1] + (alpha*delta*mF), self.weights[5][2] + (alpha*delta*xF), self.weights[5][3] + (alpha*delta*bF), self.weights[5][4] + (alpha*delta*wF), self.weights[5][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][5] = self.weights[5][0]*eF + self.weights[5][1]*mF + self.weights[5][2]*xF + self.weights[5][3]*bF + self.weights[5][4]*wF + self.weights[5][5]*nF
                     case [0,1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][6]
-                        self.weights[6] = [self.weights[6][0] + (alpha*delta*eF), self.weights[6][1] + (alpha*delta*mF), self.weights[6][2] + (alpha*delta*xF), self.weights[6][3] + (alpha*delta*bF), self.weights[6][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][6] = self.weights[6][0]*eF + self.weights[6][1]*mF + self.weights[6][2]*xF + self.weights[6][3]*bF + self.weights[6][4]*wF
+                        self.weights[6] = [self.weights[6][0] + (alpha*delta*eF), self.weights[6][1] + (alpha*delta*mF), self.weights[6][2] + (alpha*delta*xF), self.weights[6][3] + (alpha*delta*bF), self.weights[6][4] + (alpha*delta*wF), self.weights[6][5] + (alpha*delta*nF) ]
+                        qValues[old_y*8+old_x][6] = self.weights[6][0]*eF + self.weights[6][1]*mF + self.weights[6][2]*xF + self.weights[6][3]*bF + self.weights[6][4]*wF + self.weights[6][5]*nF
                     case [1,1]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][7]
-                        self.weights[7] = [self.weights[7][0] + (alpha*delta*eF), self.weights[7][1] + (alpha*delta*mF), self.weights[7][2] + (alpha*delta*xF), self.weights[7][3] + (alpha*delta*bF), self.weights[7][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][7] = self.weights[7][0]*eF + self.weights[7][1]*mF + self.weights[7][2]*xF + self.weights[7][3]*bF + self.weights[7][4]*wF
+                        self.weights[7] = [self.weights[7][0] + (alpha*delta*eF), self.weights[7][1] + (alpha*delta*mF), self.weights[7][2] + (alpha*delta*xF), self.weights[7][3] + (alpha*delta*bF), self.weights[7][4] + (alpha*delta*wF), self.weights[7][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][7] = self.weights[7][0]*eF + self.weights[7][1]*mF + self.weights[7][2]*xF + self.weights[7][3]*bF + self.weights[7][4]*wF  + self.weights[7][5]*nF
                     case [0,0]:
                         delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][8]
-                        self.weights[8] = [self.weights[8][0] + (alpha*delta*eF), self.weights[8][1] + (alpha*delta*mF), self.weights[8][2] + (alpha*delta*xF), self.weights[8][3] + (alpha*delta*bF), self.weights[8][4] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][8] = self.weights[8][0]*eF + self.weights[8][1]*mF + self.weights[8][2]*xF + self.weights[8][3]*bF + self.weights[8][4]*wF
+                        self.weights[8] = [self.weights[8][0] + (alpha*delta*eF), self.weights[8][1] + (alpha*delta*mF), self.weights[8][2] + (alpha*delta*xF), self.weights[8][3] + (alpha*delta*bF), self.weights[8][4] + (alpha*delta*wF), self.weights[8][5] + (alpha*delta*nF)]
+                        qValues[old_y*8+old_x][8] = self.weights[8][0]*eF + self.weights[8][1]*mF + self.weights[8][2]*xF + self.weights[8][3]*bF + self.weights[8][4]*wF + self.weights[8][5]*nF
                         newPlayer.place_bomb()
                 moves += 1
                 (x, y) = (new_x, new_y)

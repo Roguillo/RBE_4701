@@ -1,8 +1,9 @@
 {
     "epoch"  : 0,
-    "weights": [
-        { "w0": 0 },
-        { "w1": 0 },
-        { "w2": 0 }
-    ]
+    "weights": {
+        "bias"                     : 0,
+        "exit distance"            : 0,
+        "nearest monster distance" : 0,
+        "in danger"                : 0
+    }
 }

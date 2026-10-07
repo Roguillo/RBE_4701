@@ -2,6 +2,8 @@ import sys
 
 sys.path.insert(0, '../bomberman')
 
+import json
+import random
 from collections import deque
 
 from entity import CharacterEntity  # type: ignore
@@ -13,16 +15,16 @@ class TestCharacter(CharacterEntity):
     path_to_weights = "./weights.json"
 
     epoch   = 0
-    weights = {}
+    weights = None
 
     gamma   = 0.9 # discount rate
     alpha   = 0.5 # learning rate
     epsilon = 0.1 # curiosity meter
 
     # previous feature state, reward, and q-state
-    prev_character_state = {}
-    prev_reward          = 0.0
-    prev_q_state         = 0.0
+    prev_feature_state = None
+    prev_reward        = 0.0
+    prev_q_state       = 0.0
 
     ###
     # wrld: the world
@@ -40,7 +42,7 @@ class TestCharacter(CharacterEntity):
                 for ny in [-1, 0, 1]:
                     if (
                            (((cell[1] + ny >= 0) and (cell[1] + ny) < wrld.height())) and
-                        not(wrld.wall_at(cell[0] + nx, cell[1] + ny))
+                        not(wrld.wall_at(cell[0] + nx, cell[1] + ny)                )
                        ):
                         cells.append((cell[0] + nx, cell[1] + ny))
         return(cells)
@@ -56,7 +58,7 @@ class TestCharacter(CharacterEntity):
     #  - bomb timer
     #  - explosion cells
     #  - explosion range
-    def get_wrld_state(self, wrld):
+    def get_world_state(self, wrld):
         character_object = wrld.me(self)
         monster_cells    = set()
         bomb_cell        = None
@@ -77,7 +79,7 @@ class TestCharacter(CharacterEntity):
 
         wrld_state["character cell"]  = (character_object.x, character_object.y)
         wrld_state["exit cell"]       = wrld.exitcell
-        wrld_state["monsters"]        = monster_cells
+        wrld_state["monster cells"]   = monster_cells
         wrld_state["bomb cell"]       = bomb_cell
         wrld_state["bomb timer"]      = bomb_timer
         wrld_state["explosion cells"] = explosion_cells
@@ -86,7 +88,7 @@ class TestCharacter(CharacterEntity):
         return(wrld_state)
 
     ###
-    # wrld_state: relevant data from wrld fetched with get_wrld_state()
+    # wrld_state: relevant data from wrld fetched with get_world_state()
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
     def get_dangerous_cells(self, wrld_state):
@@ -114,7 +116,7 @@ class TestCharacter(CharacterEntity):
     # start_cell   : cell to start from
     # blocked_cells: cells to exclude from search
     #
-    # >>> returns Look-Up Grid of reachable cell positions and distances from start cell, excluding given blocked cells
+    # >>> returns Look-Up Grid of reachable cell positions and distances from start cell using BFS, excluding given blocked cells
     def get_lug(self, wrld, start_cell, blocked_cells):
         blocked_cells_set = set(blocked_cells)
         blocked_cells_set.discard(start_cell)
@@ -133,7 +135,11 @@ class TestCharacter(CharacterEntity):
 
         return(cell_distances)
 
-    # return a list of legal cells and whether a bomb can be placed for each one
+    ###
+    # wrld      : the world
+    # wrld_state: world state dictionary from get_world_state()
+    #
+    # >>> returns character's current legal actions, with actions being direction to move in and whether to place a bomb
     def get_legal_actions(self, wrld, wrld_state):
         neighbors     = self.get_neighbors_of_8(wrld, wrld_state["character cell"])
         bomb_ready    = wrld_state["bomb cell"] is None
@@ -146,7 +152,11 @@ class TestCharacter(CharacterEntity):
 
         return(legal_actions)
 
-    # return the hypothetical result of applying a given action in the given world
+    ###
+    # wrld  : the world
+    # action: action to try out
+    #
+    # >>> returns the hypothetical result of acting out the given action in the current world state as a hypothetical resulting world and its corresponding events
     def do_hypth_action(self, wrld, action):
         (target_cell, place_bomb) = action
         hypth_wrld                = SensedWorld.from_world(wrld)
@@ -157,7 +167,10 @@ class TestCharacter(CharacterEntity):
 
         return(hypth_wrld.next())
 
-    # returns a reward value given hypothetical world events and cost of living
+    ###
+    # events: world events
+    #
+    # >>> returns corresponding rewards for all events given
     def get_reward(self, events):
         reward = -1
 
@@ -172,33 +185,114 @@ class TestCharacter(CharacterEntity):
 
         return(reward, False)
 
-    # return a dictionary with feature names as keys and values as values
-    def extract_features(self, hypth_wrld, events):
-        pass
+    ###
+    # hypth_wrld: hypothetical / copied world
+    #
+    # >>> returns feature values given hypothetical world state
+    def extract_features(self, hypth_wrld):
+        hypth_wrld_state = self.get_world_state(hypth_wrld)
+        max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
+        exit_cell        = hypth_wrld_state["exit cell"]
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
+        lookup_grid      = self.get_lug(hypth_wrld, hypth_wrld_state["character cell"], dangerous_cells)
+        features         = {}
 
-    # return the result of applying the weighted sum of all features values
-    def get_q_state(self, character_state):
-        pass
+        features["bias"]                      = 1
+        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if (exit_cell in lookup_grid) else (1)
+        features["nearest monster distance"]  = 1
 
-    # returns a list of actiones with their respective scores
-    def get_action_scores(self, wrld, actions):
-        pass
+        for monster_cell in hypth_wrld_state["monster cells"]:
+            if((monster_cell in lookup_grid) and ((min(lookup_grid[monster_cell] / max_distance, 1.0)) < features["nearest monster distance"])):
+                features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
 
-    # return the chosen action, which will either be the best one according to what is known, or a random one depending on how high/low epsilon is
-    def choose_action(self, actions):
-        pass
+        features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
 
-    # get the weight stored in the external JSON file
+        return(features)
+
+    ###
+    # feature_state: dictionary of features
+    #
+    # >>> returns q state value using given features values and weights
+    def get_q_state(self, feature_state):
+        return(
+               (self.weights["bias"]                     * feature_state["bias"]                    ) +
+               (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
+               (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
+               (self.weights["in danger"]                * feature_state["in danger"]               )
+              )
+
+    ###
+    # wrld         : the world
+    # legal_actions: actions that can be performed, not necessarily safe
+    #
+    # >>> returns a list of action scores with (action, q-state, features, reward)
+    def get_action_scores(self, wrld, legal_actions):
+        action_scores = []
+
+        for action in legal_actions:
+            (hypth_wrld, hypth_events) = self.do_hypth_action(wrld, action)
+            (reward    , done)         = self.get_reward(hypth_events)
+
+            if(done): action_scores.append((action, reward, None, reward))
+
+            else:
+                feature_state = self.extract_features(hypth_wrld)
+                q_state       = self.get_q_state(feature_state)
+                action_scores.append((action, q_state, feature_state, reward))
+
+        return(action_scores)
+
+    ###
+    # scored_actions: list of scored actions [(action, q-state, features, reward), ...]
+    #
+    # >>> returns chosen action taking epsilon value into account and breaking best-q-state scored actions randomly
+    def choose_action(self, scored_actions):
+        pick_best_scored_action = random.random() > self.epsilon
+        best_q_state            = float('-inf')
+        best_scored_actions     = []
+        chosen_scored_action    = (None, float('-inf'), None, None)
+
+        if(pick_best_scored_action):
+            for scored_action in scored_actions:
+                best_q_state = max(best_q_state, scored_action[1])
+
+            for scored_action in scored_actions:
+                if(scored_action[1] == best_q_state): best_scored_actions.append(scored_action)
+
+            chosen_scored_action = random.choice(best_scored_actions)
+
+        else: chosen_scored_action = random.choice(scored_actions)
+
+        return(chosen_scored_action)
+
+    ###
+    # >>> loads saved external epoch and weights into class epoch and weight variables from JSON file
     def get_weights(self):
-        pass
+        with open(self.path_to_weights, "r") as file:
+            data = json.load(file)
 
-    # update th weights stored in the external JSON file
+            self.epoch   = data["epoch"]
+            self.weights = data["weights"]
+
+    ###
+    # >>> updates external JSON file epoch and weights with class epoch and weights
     def save_weights(self):
-        pass
+        with open(self.path_to_weights, "w") as file:
+            json.dump({ "epoch": self.epoch, "weights": self.weights }, file, indent=4)
 
-    # update the in-game/run weights
-    def update_weights(self, best_next_q_state):
-        pass
+    ###
+    # best_next_q_state: best next q-state
+    # done             : whether the character has died/won, or is still playing
+    #
+    # >>> updates in-game weights with previous features, q-state, and reward values, along with alpha and gamma
+    def update_weights(self, best_next_q_state, done):
+        self.prev_q_state = self.get_q_state(self.prev_feature_state)
+        delta             = self.prev_reward + ((0) if (done) else (self.gamma * best_next_q_state)) - self.prev_q_state
+
+        self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
+        self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
+        self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
+        self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
 
 # --- Main Loop --------------------------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -210,8 +304,4 @@ class TestCharacter(CharacterEntity):
     # actually move + place or don't place a bomb
     # when the game ends, update the external weights.  Still need to decide how/when that should be handled
     def do(self, wrld): 
-        wrld_state        = self.get_wrld_state(wrld)
-        legal_actions     = self.get_legal_actions(wrld, wrld_state)
-        (_, hypth_events) = self.do_hypth_action(wrld, legal_actions[0])
-
-        print(hypth_events)
+        pass

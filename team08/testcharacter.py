@@ -1,8 +1,11 @@
+import os
 import sys
 
 sys.path.insert(0, '../bomberman')
 
+
 import json
+import math
 import random
 from collections import deque
 
@@ -12,13 +15,13 @@ from sensed_world import SensedWorld  # type: ignore
 
 class TestCharacter(CharacterEntity):
 
-    path_to_weights = "./weights.json"
+    path_to_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights.json")
 
     epoch   = 0
     weights = None
 
     gamma   = 0.9 # discount rate
-    alpha   = 0.5 # learning rate
+    alpha   = 0.1 # learning rate
     epsilon = 0.1 # curiosity meter
 
     # previous feature state, reward, and q-state
@@ -92,7 +95,7 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
     def get_dangerous_cells(self, wrld_state):
-        bomb_escape_time       = 3
+        bomb_escape_time       = 5
 
         bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
@@ -192,13 +195,16 @@ class TestCharacter(CharacterEntity):
     def extract_features(self, hypth_wrld):
         hypth_wrld_state = self.get_world_state(hypth_wrld)
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
+        character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
         dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
-        lookup_grid      = self.get_lug(hypth_wrld, hypth_wrld_state["character cell"], dangerous_cells)
+        lookup_grid      = self.get_lug(hypth_wrld, character_cell, dangerous_cells)
         features         = {}
 
         features["bias"]                      = 1
-        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if (exit_cell in lookup_grid) else (1)
+        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if   \
+                                                (exit_cell in lookup_grid)                        else \
+                                                (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1))
         features["nearest monster distance"]  = 1
 
         for monster_cell in hypth_wrld_state["monster cells"]:
@@ -267,7 +273,7 @@ class TestCharacter(CharacterEntity):
 
     ###
     # >>> loads saved external epoch and weights into class epoch and weight variables from JSON file
-    def get_weights(self):
+    def load_weights(self):
         with open(self.path_to_weights, "r") as file:
             data = json.load(file)
 
@@ -296,12 +302,27 @@ class TestCharacter(CharacterEntity):
 
 # --- Main Loop --------------------------------------------------------------------------------------------------------------------------------------------------- #
 
-    # load epoch and weights if empty
-    # call action_scores()
-    # if the character has already moved at least once (meaning the prev_ variables aren't empty), update the in-game weights
-    # call choose_action()
-    # update the prev_ variables
-    # actually move + place or don't place a bomb
-    # when the game ends, update the external weights.  Still need to decide how/when that should be handled
+    # baptism by fire
     def do(self, wrld): 
-        pass
+        next_best_q_state = float('-inf')
+
+        if(self.weights is None): self.load_weights()
+
+        wrld_state     = self.get_world_state(wrld)
+        legal_actions  = self.get_legal_actions(wrld, wrld_state)
+        scored_actions = self.get_action_scores(wrld, legal_actions)
+
+        for scored_action in scored_actions: next_best_q_state = max(next_best_q_state, scored_action[1])
+
+        if(self.prev_feature_state is not None): self.update_weights(next_best_q_state, False)
+
+        chosen_action = self.choose_action(scored_actions)
+
+        (the_play, to_bomb_or_not_to_bomb) = chosen_action[0]
+        self.prev_feature_state            = chosen_action[2]
+        self.prev_reward                   = chosen_action[3]
+
+        self.move(the_play[0] - self.x, the_play[1] - self.y)
+        if(to_bomb_or_not_to_bomb): self.place_bomb()
+
+        self.save_weights()

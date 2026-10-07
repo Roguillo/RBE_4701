@@ -3,34 +3,40 @@ import sys
 import math
 import random
 from queue import PriorityQueue
+from collections import deque
 sys.path.insert(0, '../bomberman')
 # Import necessary stuff
 from entity import CharacterEntity
 from sensed_world import SensedWorld 
 from colorama import Fore, Back
 import os
+import json
 
 class TestCharacter(CharacterEntity):
 
     weights = []
 
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(base_dir, 'weights3.txt')
-
-    if os.path.exists(file_path):
-        with open(file_path, "r") as file:
-            for line in file:
-                row = [float(x) for x in line.strip().split()]
-                weights.append(row)
-
-    else:
-        print("File not found!")
+    path_to_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights3.json")
 
     wE = 1
     wM = -2
     wX = -5
     wB = -4
     wW = 3
+
+    epoch   = 0
+    weights = None
+
+    gamma   = 0.9 # discount rate
+    alpha   = 0.1 # learning rate
+    epsilon = 0.1 # curiosity meter
+
+    # previous feature state, reward, and q-state
+    prev_feature_state = None
+    prev_reward        = 0.0
+    prev_q_state       = 0.0
+
+    checkpoint = 0
 
 
     curiosity = 0.3
@@ -67,16 +73,29 @@ class TestCharacter(CharacterEntity):
                 if(wrld.explosion_at(x, y)): return((x, y))
 
         return(None)
+    
+    def get_explosion_cells(self, wrld, bomb):
+        positions = []
 
-    def nextToWall(self, m, wrld):
-        for dx in [-1, 0, 1]:
-            if (m.x+dx >=0) and (m.x+dx < wrld.width()):
-                for dy in [-1, 0, 1]:
-                    if (dx != 0) or (dy != 0):
-                        if (m.y+dy >=0) and (m.y+dy < wrld.height()):
-                            if wrld.wall_at(m.x+dx, m.y+dy):
-                                return 1
-        return 0
+        dir = [[1,0],[0,1],[-1,0],[0,-1]]
+        for d in dir:
+            for i in range(1,6):
+                px = bomb[0] + (d[0]*i)
+                py = bomb[1] + (d[1]*i)
+                if not (0 <= px < wrld.width() and 0 <= py < wrld.height()) or wrld.wall_at(px, py):
+                    break
+                else :
+                    positions.append([px, py])
+        return positions
+
+    def numWallInRow(self, y, wrld):
+        count = 0
+        for x in range(wrld.width()):
+            if wrld.wall_at(x, y):
+                count +=1
+                    
+                
+        return count
 
     def get_pos_moves(self, m, wrld):
         pos_Smoves = []
@@ -101,63 +120,76 @@ class TestCharacter(CharacterEntity):
     def genSpaceReward(self, wrld, path):
         p = [[0 for _ in range(8)] for _ in range(19)]
         value = 0
+        bomb = self.find_bomb(wrld)
         for v in path:
             p[v[1]][v[0]] = value
             neigh = self.get_neighbors_8(wrld, v)
             for n in neigh:
                 if p[n[1]][n[0]] == 0:
-                    p[n[1]][n[0]] = value - 0.1
+                    p[n[1]][n[0]] = value
                     neigh2 = self.get_neighbors_8(wrld, n)
                     for n2 in neigh2:
                         if p[n2[1]][n2[0]] == 0:
-                            p[n2[1]][n2[0]] = value - 0.2
+                            p[n2[1]][n2[0]] = value - 0.1
             value += 1
-        print(path)
         
         for y in range(wrld.height()):
             for x in range(wrld.width()):
                 if(wrld.exit_at(x, y)): p[y][x] = 500
                 elif(wrld.monsters_at(x, y)): p[y][x] = -100
-                elif(wrld.explosion_at(x, y)): p[y][x] = -50
+                elif(wrld.explosion_at(x, y)): p[y][x] = -500
                 elif(wrld.wall_at(x, y)): 
                     p[y][x] = 0
                 
         
 
-        bomb = self.find_bomb(wrld)
+        
         if(bomb):
-            p[bomb[1]][bomb[0]] -= 20
-            for y in range(wrld.height()):
-                for x in range(wrld.width()):
-                    not wrld.wall_at(x, y)
-                    if not wrld.wall_at(x, y) and (x == bomb[0] or y == bomb[1]):
-                        p[y][x] -= 2
+            p[bomb[1]][bomb[0]] = -30
+            exp = self.get_explosion_cells(wrld, bomb)
+            for e in exp:
+                p[e[1]][e[0]] = -10
 
-        n = self.find_monster(wrld)
-        m = wrld.monsters_at(n[0], n[1])[0]
-        p[m.y][m.x] = -100
-        mMoves = self.get_pos_moves(m, wrld)
-        for move in mMoves:
-            mx = m.x + move[0]
-            my = m.y + move[1]
-            if 0 <= mx and mx < wrld.width() and 0 <= my and my < wrld.height() and p[my][mx] != -100:
-                p[my][mx] = -75
 
-            mMoves2 = self.get_neighbors_8(wrld, (mx, my))
-            for move2 in mMoves2:
-                mx2 = move2[0]
-                my2 = move2[1]
-                
-                if (0 <= mx2 < wrld.width() and 0 <= my2 < wrld.height()) and p[my2][mx2] not in (-100, -75):
-                    p[my2][mx2] = -20
+        n = []
+        for y in range(wrld.height()):
+            for x in range(wrld.width()):
+                if wrld.monsters_at(x, y):
+                    n.append([x, y])
 
-                mMoves3 = self.get_neighbors_8(wrld, (mx2, my2))
-                for move3 in mMoves3:
-                    mx3 = move3[0]
-                    my3 = move3[1]
+        for q in range(len(n)):
+            m = wrld.monsters_at(n[q][0], n[q][1])[0]
+            if m:
+                p[m.y][m.x] = -100
+                mMoves = self.get_pos_moves(m, wrld)
+                for move in mMoves:
+                    mx = m.x + move[0]
+                    my = m.y + move[1]
+                    if 0 <= mx and mx < wrld.width() and 0 <= my and my < wrld.height() and p[my][mx] != -100:
+                        p[my][mx] = -90
 
-                    if (0 <= mx3 < wrld.width() and 0 <= my3 < wrld.height()) and p[my3][mx3] not in (-100, -75, -20):
-                        p[my3][mx3] = -5
+                    mMoves2 = self.get_neighbors_8(wrld, (mx, my))
+                    for move2 in mMoves2:
+                        mx2 = move2[0]
+                        my2 = move2[1]
+                        
+                        if (0 <= mx2 < wrld.width() and 0 <= my2 < wrld.height()) and p[my2][mx2] not in (-100, -90):
+                            p[my2][mx2] = -80
+
+                        mMoves3 = self.get_neighbors_8(wrld, (mx2, my2))
+                        for move3 in mMoves3:
+                            mx3 = move3[0]
+                            my3 = move3[1]
+
+                            if (0 <= mx3 < wrld.width() and 0 <= my3 < wrld.height()) and p[my3][mx3] not in (-100, -90, -80):
+                                p[my3][mx3] = -50
+                            mMoves4 = self.get_neighbors_8(wrld, (mx3, my3))
+                            for move4 in mMoves4:
+                                mx4 = move4[0]
+                                my4 = move4[1]
+    
+                                if (0 <= mx4 < wrld.width() and 0 <= my4 < wrld.height()) and p[my4][mx4] not in (-100, -90, -80, -50):
+                                    p[my4][mx4] = -10
             
         return p
 
@@ -209,15 +241,15 @@ class TestCharacter(CharacterEntity):
         return new_policy
 
     def policyIteration(self, wrld, rewards, gamma):
-        policy = [[0.0 for _ in range(8)] for _ in range(19)]
+        policy = [[[0, 0] for _ in range(8)] for _ in range(19)]
         for y in range(wrld.height()):
             for x in range(wrld.width()):
                 neigh = self.get_neighbors_8(wrld, (x, y))
                 possMoves = []
                 for n in neigh:
                     possMoves.append([n[0]-x, n[1]-y])
-
-                policy[y][x] = possMoves[random.randint(0, len(possMoves)-1)]
+                if len(possMoves)-1 > 0:
+                    policy[y][x] = possMoves[random.randint(0, len(possMoves)-1)]
 
         for i in range(10):
             values = self.genValue(wrld, rewards, gamma, policy)
@@ -255,6 +287,32 @@ class TestCharacter(CharacterEntity):
                         ) and (
                              wrld.exit_at (cell[0] + nx, cell[1] + ny) or
                              wrld.empty_at(cell[0] + nx, cell[1] + ny)
+                        )
+                        ):
+                            cells.append((cell[0] + nx, cell[1] + ny))
+        return(cells)
+    
+    def get_neighbors_24(self, wrld, cell):
+        # List of empty cells
+        cells = []
+        # Go through neighboring cells
+        for nx in [-2, -1, 0, 1, 2]:
+            # Avoid out-of-bounds access
+            if (
+                (cell[0] + nx >= 0)           and
+                (cell[0] + nx <  wrld.width())
+                ):
+                for ny in [-2, -1, 0, 1, 2]:
+                    # Avoid out-of-bounds access
+                    if (
+                        (
+                            (cell[1] + ny >= 0)             and
+                            (cell[1] + ny <  wrld.height())
+
+                        # Is this cell safe?
+                        ) and (
+                                wrld.exit_at (cell[0] + nx, cell[1] + ny) or
+                                wrld.empty_at(cell[0] + nx, cell[1] + ny)
                         )
                         ):
                             cells.append((cell[0] + nx, cell[1] + ny))
@@ -310,258 +368,344 @@ class TestCharacter(CharacterEntity):
         path.reverse()
         return(path)
 
+    def get_world_state(self, wrld):
+        character_object = wrld.me(self)
+        monster_cells    = set()
+        monster_sight_cells    = set()
+        bomb_cell        = None
+        bomb_timer       = None
+        explosion_cells  = set()
+        wrld_state       = {}
+
+        for monsters in wrld.monsters.values():
+            for monster in monsters:
+                monster_cells.add(self.find_monster(wrld))
+                for move in self.get_neighbors_24(wrld, self.find_monster(wrld)):
+                    monster_sight_cells.add((move[0], move[1]))
+
+        bomb_cell = self.find_bomb(wrld)
+        if bomb_cell:
+            bomb_object = wrld.bomb_at(bomb_cell[0], bomb_cell[1])
+            bomb_timer = bomb_object.timer
+
+        for explosion_cell in wrld.explosions.values():
+            explosion_cells.add((explosion_cell.x, explosion_cell.y))
+
+        wrld_state["character cell"]  = None
+        if character_object:
+            wrld_state["character cell"]  = (character_object.x, character_object.y)
+        wrld_state["exit cell"]       = wrld.exitcell
+        wrld_state["monster cells"]   = monster_cells
+        wrld_state["monster sight cells"]   = monster_sight_cells
+        wrld_state["bomb cell"]       = bomb_cell
+        wrld_state["bomb timer"]      = bomb_timer
+        wrld_state["explosion cells"] = explosion_cells
+        wrld_state["explosion range"] = wrld.expl_range
+
+        return(wrld_state)
 
 
-    def genFeature(self, featNum, wrld, me):
-        match featNum:
-            case 0:
-                exit = self.find_exit(wrld)
-                dist = self.euclidean_distance((me.x, me.y),(exit[0], exit[1]))
-                return 1/((dist)+1)
-            case 1:
-                exit = self.find_monster(wrld)
-                dist = 0
-                try:
-                    dist = self.euclidean_distance((me.x, me.y),(exit[0], exit[1]))
-                except:
-                    pass
-                return 1/((dist)+1)
-            case 2:
-                exit = self.find_explosion(wrld)
-                dist = 0
-                try:
-                    dist = self.euclidean_distance((me.x, me.y),(exit[0], exit[1]))
-                except:
-                    pass
-                return 1/((dist)+1)
-            case 3:
-                return 1/((self.numWalls(wrld))+1)
-            case 4:
-                exit = self.find_bomb(wrld)
-                dist = 0
-                try:
-                    dist = self.euclidean_distance((me.x, me.y),(exit[0], exit[1]))
-                except:
-                    pass
-                return 1/((dist)+1)
-            case 5:
-                dist = 0
-                try:
-                    dist = self.nextToWall(wrld, me)
-                except:
-                    pass
-                return 1/((dist)+1)
-        
+    def get_dangerous_cells(self, wrld_state):
+        bomb_escape_time       = 5
 
-    def getBestQValue(self, char, wrld, qValues):
-        posMoves = self.get_pos_moves(char, wrld)
-        bestMove = [0, 0]
-        bestValue = -999
-        for move in posMoves:
-            moveValue = -999
-            match move:
-                case [-1,-1]:
-                     moveValue = qValues[char.y*8+char.x][0]
-                case [0,-1]:
-                     moveValue = qValues[char.y*8+char.x][1]
-                case [1,-1]:
-                     moveValue = qValues[char.y*8+char.x][2]
-                case [-1,0]:
-                     moveValue = qValues[char.y*8+char.x][3]
-                case [1,0]:
-                     moveValue = qValues[char.y*8+char.x][4]
-                case [-1,1]:
-                     moveValue = qValues[char.y*8+char.x][5]
-                case [0,1]:
-                     moveValue = qValues[char.y*8+char.x][6]
-                case [1,1]:
-                     moveValue = qValues[char.y*8+char.x][7]
-                case [0,0]:
-                     moveValue = qValues[char.y*8+char.x][8]
-            if moveValue > bestValue:
-                bestMove = move
-                bestValue = moveValue
-            elif moveValue == bestValue and random.random() < 0.5:
-                bestMove = move
-        return bestValue
+        bomb_cell              = wrld_state["bomb cell"]
+        bomb_time              = wrld_state["bomb timer"]
+        explosion_range        = wrld_state["explosion range"]
+        monster_sight        = wrld_state["monster sight cells"]
+        dangerous_cells        = []
 
-    def getBestQValueMove(self, char, wrld, qValues):
-            posMoves = self.get_pos_moves(char, wrld)
-            bestMove = posMoves[random.randint(0, len(posMoves)-1)]
-            bestValue = -999
-            for move in posMoves:
-                moveValue = -999
-                match move:
-                    case [-1,-1]:
-                         moveValue = qValues[char.y*8+char.x][0]
-                    case [0,-1]:
-                         moveValue = qValues[char.y*8+char.x][1]
-                    case [1,-1]:
-                         moveValue = qValues[char.y*8+char.x][2]
-                    case [-1,0]:
-                         moveValue = qValues[char.y*8+char.x][3]
-                    case [1,0]:
-                         moveValue = qValues[char.y*8+char.x][4]
-                    case [-1,1]:
-                         moveValue = qValues[char.y*8+char.x][5]
-                    case [0,1]:
-                         moveValue = qValues[char.y*8+char.x][6]
-                    case [1,1]:
-                         moveValue = qValues[char.y*8+char.x][7]
-                    case [0,0]:
-                         moveValue = qValues[char.y*8+char.x][8]
-                if moveValue > bestValue:
-                    bestMove = move
-                    bestValue = moveValue
-                elif moveValue == bestValue and random.random() < 0.5:
-                    bestMove = move
-            return bestMove
+        dangerous_cells.extend(wrld_state["explosion cells"])
+        if(bomb_cell): dangerous_cells.append(bomb_cell)
+
+        if(bomb_cell and (bomb_time <= bomb_escape_time)):
+            for x in range(2 * explosion_range + 1):
+                if((x - explosion_range) != 0): dangerous_cells.append(((bomb_cell[0] + (x - explosion_range)),  bomb_cell[1]))
+
+            for y in range(2 * explosion_range + 1):
+                if((y - explosion_range) != 0): dangerous_cells.append( (bomb_cell[0], (bomb_cell[1] + (y - explosion_range))))
+
+        for cell in monster_sight:
+            dangerous_cells.append(cell)
+
+        return(dangerous_cells)
+
+    ###
+    # wrld         : the world
+    # start_cell   : cell to start from
+    # blocked_cells: cells to exclude from search
+    #
+    # >>> returns Look-Up Grid of reachable cell positions and distances from start cell using BFS, excluding given blocked cells
+    def lookUpGrid(self, wrld, start_cell, blocked_cells):
+        blocked_cells_set = set(blocked_cells)
+        blocked_cells_set.discard(start_cell)
+
+        cell_distances = {start_cell: 0}
+        frontier = deque([start_cell])
+
+        while frontier:
+            current_cell  = frontier.popleft()
+            next_distance = cell_distances[current_cell] + 1
+
+            for neighbor in self.get_neighbors_8(wrld, current_cell):
+                if not((neighbor in blocked_cells_set) or (neighbor in cell_distances)):
+                    cell_distances[neighbor] = next_distance
+                    frontier.append(neighbor)
+
+        return(cell_distances)
+
+    ###
+    # wrld      : the world
+    # wrld_state: world state dictionary from get_world_state()
+    #
+    # >>> returns character's current legal actions, with actions being direction to move in and whether to place a bomb
+    def get_legal_actions(self, wrld, wrld_state):
+        neighbors     = self.get_neighbors_8(wrld, wrld_state["character cell"])
+        bomb_ready    = wrld_state["bomb cell"] is None
+        legal_actions = []
+
+        for neighbor in neighbors:
+            if(neighbor != wrld_state["bomb cell"]):
+                legal_actions.append((neighbor, False))
+                if(bomb_ready): legal_actions.append((neighbor, True))
+
+        return(legal_actions)
 
 
+    # >>> returns the hypothetical result of acting out the given action in the current world state as a hypothetical resulting world and its corresponding events
+    def do_hypth_action(self, wrld, action):
+        (target_cell, place_bomb) = action
+        hypth_wrld                = SensedWorld.from_world(wrld)
+        hypth_character           = hypth_wrld.me(self)
+
+        hypth_character.move(target_cell[0] - hypth_character.x, target_cell[1] - hypth_character.y)
+        if(place_bomb): hypth_character.place_bomb()
+
+        return(hypth_wrld.next())
 
 
+    def get_reward(self, events, wrld_state):
+        reward = -1
+
+        for event in events:
+            if  (event.tpe == event.BOMB_HIT_WALL)                   : reward += 5
+            elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 20
+            elif(
+                 (event.tpe == event.BOMB_HIT_CHARACTER)          or
+                 (event.tpe == event.CHARACTER_KILLED_BY_MONSTER)
+                )                                                    : return(-100, True)
+            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return(100, True)
+
+        if wrld_state["character cell"]:
+            reward = -1/(wrld_state["character cell"][1] + 1)
+            if wrld_state["character cell"] in wrld_state["monster sight cells"]:
+                reward -= 50
+
+        return(reward, False)
+
+    ###
+    # hypth_wrld: hypothetical / copied world
+    #
+    # >>> returns feature values given hypothetical world state
+    def extract_features(self, hypth_wrld):
+        hypth_wrld_state = self.get_world_state(hypth_wrld)
+        max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
+        character_cell   = hypth_wrld_state["character cell"]
+        exit_cell        = hypth_wrld_state["exit cell"]
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
+        lookup_grid      = self.lookUpGrid(hypth_wrld, character_cell, dangerous_cells)
+        features         = {}
+
+        features["bias"]                      = 1
+        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if   \
+                                                (exit_cell in lookup_grid)                        else \
+                                                (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1))
+        features["nearest monster distance"]  = 1
+
+        for monster_cell in hypth_wrld_state["monster cells"]:
+            if((monster_cell in lookup_grid) and ((min(lookup_grid[monster_cell] / max_distance, 1.0)) < features["nearest monster distance"])):
+                features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
+
+        features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
+
+        return(features)
     
 
-    def approximateQLearning(self, wrld, qValues, alpha, rewards):     
-        for i in range(40):
-            (x, y) = (self.x, self.y)
-            newwrld = SensedWorld.from_world(wrld)
-            events = newwrld.events
+    ###
+    # feature_state: dictionary of features
+    #
+    # >>> returns q state value using given features values and weights
+    def get_q_state(self, feature_state):
+        return(
+               (self.weights["bias"]                     * feature_state["bias"]                    ) +
+               (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
+               (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
+               (self.weights["in danger"]                * feature_state["in danger"]               )
+              )
 
-            players = newwrld.characters_at(x, y)
+    ###
+    # wrld         : the world
+    # legal_actions: actions that can be performed, not necessarily safe
+    #
+    # >>> returns a list of action scores with (action, q-state, features, reward)
+    def get_action_scores(self, wrld, legal_actions):
+        action_scores = []
 
-            if players is None:
-                print("ERROR: No player at expected position!")
-                return [0, 0]
+        for action in legal_actions:
+            (hypth_wrld, hypth_events) = self.do_hypth_action(wrld, action)
+            (reward, done) = self.get_reward(hypth_events, self.get_world_state(hypth_wrld))
 
-            newPlayer = players[0]
-            dead = False
-            gamma = 0.9
-            moves = 0
-            while not(dead) and moves < 100:    
-                eF = self.genFeature(0, newwrld, newPlayer)
-                mF = self.genFeature(1, newwrld, newPlayer)
-                xF = self.genFeature(2, newwrld, newPlayer)
-                wF = self.genFeature(3, newwrld, newPlayer)
-                bF = self.genFeature(4, newwrld, newPlayer)
-                nF = self.genFeature(5, newwrld, newPlayer)
-                posMoves = self.get_pos_moves(newPlayer, newwrld)
-                if random.random() < self.curiosity:
-                    moveSelection = random.randint(0, len(posMoves)-1)
-                    a = posMoves[moveSelection]
-                else:
-                    a = self.getBestQValueMove(newPlayer, newwrld, qValues)
+            if(done): action_scores.append((action, reward, None, reward))
 
-                (old_x, old_y) = (newPlayer.x, newPlayer.y)
-                newPlayer.move(a[0], a[1])
-                (new_x, new_y) = (newPlayer.x, newPlayer.y)
-                reward = rewards[new_y][new_x]
-                for event in events:
-                    if event.tpe == 4:
-                        reward = 1000
-                        dead = True
-                    elif event.tpe == 3:
-                        reward = -1000
-                        dead = True
-                    elif event.tpe == 2:
-                        reward = -1000
-                        dead = True
-                    elif event.tpe == 1:
-                        reward = 10000
-                    elif event.tpe == 0:
-                        reward = 500
-                if (self.nextToWall == 1 and a == [0, 0]):
-                    reward = 100
-                    
-                match a:
-                    case [-1,-1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][0]
-                        self.weights[0] = [self.weights[0][0] + (alpha*delta*eF), self.weights[0][1] + (alpha*delta*mF), self.weights[0][2] + (alpha*delta*xF), self.weights[0][3] + (alpha*delta*bF), self.weights[0][4] + (alpha*delta*wF), self.weights[0][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][0] = self.weights[0][0]*eF + self.weights[0][1]*mF + self.weights[0][2]*xF + self.weights[0][3]*bF + self.weights[0][4]*wF + self.weights[0][5]*nF
-                    case [0,-1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][1]
-                        self.weights[1] = [self.weights[1][0] + (alpha*delta*eF), self.weights[1][1] + (alpha*delta*mF), self.weights[1][2] + (alpha*delta*xF), self.weights[1][3] + (alpha*delta*bF), self.weights[1][4] + (alpha*delta*wF), self.weights[1][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][1] = self.weights[1][0]*eF + self.weights[1][1]*mF + self.weights[1][2]*xF + self.weights[1][3]*bF + self.weights[1][4]*wF + self.weights[1][5]*nF 
-                    case [1,-1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][2]
-                        self.weights[2] = [self.weights[2][0] + (alpha*delta*eF), self.weights[2][1] + (alpha*delta*mF), self.weights[2][2] + (alpha*delta*xF), self.weights[2][3] + (alpha*delta*bF), self.weights[2][4] + (alpha*delta*wF), self.weights[2][5] + (alpha*delta*wF)]
-                        qValues[old_y*8+old_x][2] = self.weights[2][0]*eF + self.weights[2][1]*mF + self.weights[2][2]*xF + self.weights[2][3]*bF + self.weights[2][4]*wF  + self.weights[2][5]*nF
-                    case [-1,0]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][3]
-                        self.weights[3] = [self.weights[3][0] + (alpha*delta*eF), self.weights[3][1] + (alpha*delta*mF), self.weights[3][2] + (alpha*delta*xF), self.weights[3][3] + (alpha*delta*bF), self.weights[3][4] + (alpha*delta*wF), self.weights[3][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][3] = self.weights[3][0]*eF + self.weights[3][1]*mF + self.weights[3][2]*xF + self.weights[3][3]*bF + self.weights[3][4]*wF + self.weights[3][5]*nF
-                    case [1,0]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][4]
-                        self.weights[4] = [self.weights[4][0] + (alpha*delta*eF), self.weights[4][1] + (alpha*delta*mF), self.weights[4][2] + (alpha*delta*xF), self.weights[4][3] + (alpha*delta*bF), self.weights[4][4] + (alpha*delta*wF), self.weights[4][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][4] = self.weights[4][0]*eF + self.weights[4][1]*mF + self.weights[4][2]*xF + self.weights[4][3]*bF + self.weights[4][4]*wF + self.weights[4][5]*nF
-                    case [-1,1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][5]
-                        self.weights[5] = [self.weights[5][0] + (alpha*delta*eF), self.weights[5][1] + (alpha*delta*mF), self.weights[5][2] + (alpha*delta*xF), self.weights[5][3] + (alpha*delta*bF), self.weights[5][4] + (alpha*delta*wF), self.weights[5][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][5] = self.weights[5][0]*eF + self.weights[5][1]*mF + self.weights[5][2]*xF + self.weights[5][3]*bF + self.weights[5][4]*wF + self.weights[5][5]*nF
-                    case [0,1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][6]
-                        self.weights[6] = [self.weights[6][0] + (alpha*delta*eF), self.weights[6][1] + (alpha*delta*mF), self.weights[6][2] + (alpha*delta*xF), self.weights[6][3] + (alpha*delta*bF), self.weights[6][4] + (alpha*delta*wF), self.weights[6][5] + (alpha*delta*nF) ]
-                        qValues[old_y*8+old_x][6] = self.weights[6][0]*eF + self.weights[6][1]*mF + self.weights[6][2]*xF + self.weights[6][3]*bF + self.weights[6][4]*wF + self.weights[6][5]*nF
-                    case [1,1]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][7]
-                        self.weights[7] = [self.weights[7][0] + (alpha*delta*eF), self.weights[7][1] + (alpha*delta*mF), self.weights[7][2] + (alpha*delta*xF), self.weights[7][3] + (alpha*delta*bF), self.weights[7][4] + (alpha*delta*wF), self.weights[7][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][7] = self.weights[7][0]*eF + self.weights[7][1]*mF + self.weights[7][2]*xF + self.weights[7][3]*bF + self.weights[7][4]*wF  + self.weights[7][5]*nF
-                    case [0,0]:
-                        delta = (reward + gamma*(self.getBestQValue(newPlayer, newwrld, qValues))) - qValues[(old_y*8)+old_x][8]
-                        self.weights[8] = [self.weights[8][0] + (alpha*delta*eF), self.weights[8][1] + (alpha*delta*mF), self.weights[8][2] + (alpha*delta*xF), self.weights[8][3] + (alpha*delta*bF), self.weights[8][4] + (alpha*delta*wF), self.weights[8][5] + (alpha*delta*nF)]
-                        qValues[old_y*8+old_x][8] = self.weights[8][0]*eF + self.weights[8][1]*mF + self.weights[8][2]*xF + self.weights[8][3]*bF + self.weights[8][4]*wF + self.weights[8][5]*nF
-                        newPlayer.place_bomb()
-                moves += 1
-                (x, y) = (new_x, new_y)
-                newwrld = SensedWorld.from_world(wrld)
-                
+            else:
+                feature_state = self.extract_features(hypth_wrld)
+                q_state = self.get_q_state(feature_state)
+                action_scores.append((action, q_state, feature_state, reward))
 
-            """print("Q-Values after move:")
-            for i in range(len(self.qValues)):
-                print(self.qValues[i])"""
-        with open(self.file_path, "w") as file:
-            for row in self.weights:
-                line = " ".join(map(str, row))
-                file.write(line + "\n")
+        return(action_scores)
 
-        return self.getBestQValueMove(self, wrld, qValues)
+    ###
+    # scored_actions: list of scored actions [(action, q-state, features, reward), ...]
+    #
+    # >>> returns chosen action taking epsilon value into account and breaking best-q-state scored actions randomly
+    def choose_action(self, scored_actions):
+        pick_best_scored_action = random.random() > self.epsilon
+        best_q_state            = float('-inf')
+        best_scored_actions     = []
+        chosen_scored_action    = (None, float('-inf'), None, None)
+
+        if(pick_best_scored_action):
+            for scored_action in scored_actions:
+                best_q_state = max(best_q_state, scored_action[1])
+
+            for scored_action in scored_actions:
+                if(scored_action[1] == best_q_state): best_scored_actions.append(scored_action)
+
+            if best_scored_actions:
+                chosen_scored_action = random.choice(best_scored_actions)
+            else:
+                pass
+        else: chosen_scored_action = random.choice(scored_actions)
+
+        return(chosen_scored_action)
+
+    ###
+    # >>> loads saved external epoch and weights into class epoch and weight variables from JSON file
+    def load_weights(self):
+        with open(self.path_to_weights, "r") as file:
+            data = json.load(file)
+
+            self.epoch   = data["epoch"]
+            self.weights = data["weights"]
+
+    ###
+    # >>> updates external JSON file epoch and weights with class epoch and weights
+    def save_weights(self):
+        with open(self.path_to_weights, "w") as file:
+            json.dump({ "epoch": self.epoch, "weights": self.weights }, file, indent=4)
+
+    ###
+    # best_next_q_state: best next q-state
+    # done             : whether the character has died/won, or is still playing
+    #
+    # >>> updates in-game weights with previous features, q-state, and reward values, along with alpha and gamma
+    def update_weights(self, best_next_q_state, done):
+        self.prev_q_state = self.get_q_state(self.prev_feature_state)
+        delta             = self.prev_reward + ((0) if (done) else (self.gamma * best_next_q_state)) - self.prev_q_state
+
+        self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
+        self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
+        self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
+        self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
+
 
 
     
     def do(self, wrld):
-        # Your code here
         exit = self.find_exit(wrld)
+
         
         goal = exit
-        if(self.y < 4):
+
+        if(self.numWallInRow(3, wrld) < 8):
+            self.checkpoint = 0
             goal = (4, 6)
 
-        elif(self.y >= 4 and self.y < 8):
+        if(self.numWallInRow(7, wrld) < 8):
+            self.checkpoint = 1
             goal = (4, 10)
 
-        elif(self.y >= 8 and self.y < 12):
+        if(self.numWallInRow(11, wrld) < 8):
+            self.checkpoint = 2
             goal = (4, 14)
 
-        elif(self.y >= 12 and self.y < 16):
-            goal = (4, 18)
+        if(self.numWallInRow(15, wrld) < 8):
+            self.checkpoint = 3
+            goal = exit
+
+        if self.y == goal[1]:
+            self.checkpoint += 1
+
+        match self.checkpoint:
+            case 0:
+                goal = (4, 6)
+            case 1:
+                goal = (4, 10)
+            case 2:
+                goal = (4, 14)
+            case 3:
+                goal = exit
+
 
         path = self.a_star(wrld, (self.x, self.y), goal)
+        monster = self.find_monster(wrld)
+        if monster:
+            path2monster = self.a_star(wrld, (self.x, self.y), monster)
         r = self.genSpaceReward(wrld, path)
-        print(path)
+        for row in range(len(r)):
+            print(r[row])
 
-        if path[-1] == goal:
+        print(path)
+        print(goal)
+        if path[-1] == goal or (monster and path2monster[-1] == monster and monster[1] >= self.y):
             p = self.policyIteration(wrld, r, 0.9)
             bestMovement = p[self.y][self.x]
-        else: 
-            p = self.approximateQLearning(wrld, self.qValues, 0.9, r)
-            bestMovement = p
-
-        if bestMovement == [0, 0] and self.find_bomb(wrld) is None:
-            self.place_bomb()
-            print("Placed bomb")
-        else:
-            if(len(path) <= 5):
+            if(goal == exit and len(path) <= 3):
                 bestMovement = [path[1][0] - self.x, path[1][1] - self.y]
+            elif((0 <= self.x + bestMovement[1] < wrld.width() and 0 <= self.y + bestMovement[0] < wrld.height()) and r[self.y + bestMovement[0]][self.x + bestMovement[1]] in (-100, -90, -80, -75, -50, -10) and not self.find_bomb(wrld)):
+                self.place_bomb()
             print(bestMovement)
             self.move(bestMovement[0], bestMovement[1])
+            if bestMovement == [0, 0] and self.find_bomb(wrld) is None:
+                self.place_bomb()
+                print("Placed bomb")
+            else:
+                print(bestMovement)
+                self.move(bestMovement[0], bestMovement[1])
+        else: 
+            next_best_q_state = float('-inf')
+            
+            if(self.weights is None): self.load_weights()
+    
+            wrld_state     = self.get_world_state(wrld)
+            legal_actions  = self.get_legal_actions(wrld, wrld_state)
+            scored_actions = self.get_action_scores(wrld, legal_actions)
+    
+            for scored_action in scored_actions: next_best_q_state = max(next_best_q_state, scored_action[1])
+    
+            if(self.prev_feature_state is not None): self.update_weights(next_best_q_state, False)
+
+            if scored_actions:
+                chosen_action = self.choose_action(scored_actions)
+        
+                (the_play, to_bomb_or_not_to_bomb) = chosen_action[0]
+                self.prev_feature_state            = chosen_action[2]
+                self.prev_reward                   = chosen_action[3]
+        
+                self.move(the_play[0] - self.x, the_play[1] - self.y)
+                if(to_bomb_or_not_to_bomb): self.place_bomb()
+    
+            self.save_weights()
+
+
+        
 

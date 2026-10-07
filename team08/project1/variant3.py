@@ -14,27 +14,27 @@ from testcharacter import TestCharacter
 
 # Create the game
 
-"""ratios = []
+ratios = []
 for j in range(5):
     r = random.randint(1, 100)
     wins = 0
     loses = 0
-    for i in range(10):"""
-g = Game.fromfile('map.txt')
-g.add_monster(SelfPreservingMonster("selfpreserving", # name
-                                    "S",              # avatar
-                                    3, 9,             # position
-                                    1                 # detection range
-))
+    for i in range(10):
+        g = Game.fromfile('map.txt')
+        g.add_monster(SelfPreservingMonster("selfpreserving", # name
+                                            "S",              # avatar
+                                            3, 9,             # position
+                                            1                 # detection range
+        ))
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
-                            "C",  # avatar
-                            0, 0  # position
-))
-# Run!
-g.go()
-"""        for event in g.events:
+        # TODO Add your character
+        g.add_character(TestCharacter("me", # name
+                                    "C",  # avatar
+                                    0, 0  # position
+        ))
+        # Run!
+        g.go(1)
+        for event in g.events:
             print(event)
             if event.CHARACTER_FOUND_EXIT:
                 wins+=1
@@ -46,4 +46,3 @@ g.go()
     ratios.append((wins/10)*100)
 
 print("Win/lose ratios: " + str(ratios))
-"""

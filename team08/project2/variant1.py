@@ -12,13 +12,14 @@ from testcharacter import TestCharacter
 
 
 # Create the game
-g = Game.fromfile('map.txt')
+for i in range(100):
+    g = Game.fromfile('map.txt')
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
-                              "C",  # avatar
-                              0, 0  # position
-))
+    # TODO Add your character
+    g.add_character(TestCharacter("me", # name
+                                "C",  # avatar
+                                0, 0  # position
+    ))
 
-# Run!
-g.go()
+    # Run!
+    g.go()

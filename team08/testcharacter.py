@@ -94,8 +94,8 @@ class TestCharacter(CharacterEntity):
     # wrld_state: relevant data from wrld fetched with get_world_state()
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
-    def get_dangerous_cells(self, wrld_state):
-        bomb_escape_time       = 5
+    def get_dangerous_cells(self, wrld_state, wrld):
+        bomb_escape_time       = 3
 
         bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
@@ -103,14 +103,37 @@ class TestCharacter(CharacterEntity):
         dangerous_cells        = []
 
         dangerous_cells.extend(wrld_state["explosion cells"])
-        if(bomb_cell): dangerous_cells.append(bomb_cell)
 
+        # Increment dangerous cells away from bomb and only add if wall is not in the way
         if(bomb_cell and (bomb_time <= bomb_escape_time)):
-            for x in range(2 * explosion_range + 1):
-                if((x - explosion_range) != 0): dangerous_cells.append(((bomb_cell[0] + (x - explosion_range)),  bomb_cell[1]                          ))
+            dangerous_cells.append(bomb_cell)
+            
+            for x in range(explosion_range): # Right of bomb                
+                # Add cells only if in world, break otherwise
+                if bomb_cell[0]+x < wrld.width()-1: dangerous_cells.append((bomb_cell[0]+x, bomb_cell[1]))
+                else: break
+                
+                # Add dangerous cell if at wall (explosion lingers in broken wall), then stop
+                if wrld.wall_at(bomb_cell[0] + x, bomb_cell[1]): break
+                    
+            for x in range(explosion_range): # Left of bomb
+                if bomb_cell[0]-x >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0] - x, bomb_cell[1]): break
+                
+            for y in range(explosion_range): # Below bomb
+                if bomb_cell[1]+y < wrld.height()-1: dangerous_cells.append((bomb_cell[0], bomb_cell[1]+y))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0], bomb_cell[1]+y): break
 
-            for y in range(2 * explosion_range + 1):
-                if((y - explosion_range) != 0): dangerous_cells.append( (bomb_cell[0]                         , (bomb_cell[1] + (y - explosion_range))))
+                
+            for y in range(explosion_range): # Above bomb
+                if bomb_cell[1]-y >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]-y))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0], bomb_cell[1]-y): break
 
         return(dangerous_cells)
 
@@ -197,7 +220,7 @@ class TestCharacter(CharacterEntity):
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
         character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
-        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state, hypth_wrld)
         lookup_grid      = self.get_lug(hypth_wrld, character_cell, dangerous_cells)
         features         = {}
 
@@ -212,6 +235,9 @@ class TestCharacter(CharacterEntity):
                 features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
 
         features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
+        
+        # NOTE: DEBUGGING FEATURE EXTRACTION
+        print(f"Testing {character_cell}: In Danger = {features['in danger']}  |  Dangerous Cells: {dangerous_cells}")
 
         return(features)
 
@@ -321,6 +347,9 @@ class TestCharacter(CharacterEntity):
         (the_play, to_bomb_or_not_to_bomb) = chosen_action[0]
         self.prev_feature_state            = chosen_action[2]
         self.prev_reward                   = chosen_action[3]
+
+        # NOTE: DEBUGGING FINAL MOVE
+        print(f"Moving to ({the_play})")
 
         self.move(the_play[0] - self.x, the_play[1] - self.y)
         if(to_bomb_or_not_to_bomb): self.place_bomb()

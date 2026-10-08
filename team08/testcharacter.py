@@ -3,9 +3,7 @@ import sys
 
 sys.path.insert(0, '../bomberman')
 
-
 import json
-import math
 import random
 from collections import deque
 
@@ -27,7 +25,9 @@ class TestCharacter(CharacterEntity):
     # previous feature state, reward, and q-state
     prev_feature_state = None
     prev_reward        = 0.0
-    prev_q_state       = 0.0
+
+    # counter for saving
+    save_counter = 0
 
     ###
     # wrld: the world
@@ -84,6 +84,7 @@ class TestCharacter(CharacterEntity):
         wrld_state["exit cell"]       = wrld.exitcell
         wrld_state["monster cells"]   = monster_cells
         wrld_state["bomb cell"]       = bomb_cell
+        wrld_state["bomb fuse"]       = wrld.bomb_time
         wrld_state["bomb timer"]      = bomb_timer
         wrld_state["explosion cells"] = explosion_cells
         wrld_state["explosion range"] = wrld.expl_range
@@ -94,8 +95,8 @@ class TestCharacter(CharacterEntity):
     # wrld_state: relevant data from wrld fetched with get_world_state()
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
-    def get_dangerous_cells(self, wrld_state):
-        bomb_escape_time       = 5
+    def get_dangerous_cells(self, wrld, wrld_state,):
+        bomb_escape_time       = 10
 
         bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
@@ -103,14 +104,36 @@ class TestCharacter(CharacterEntity):
         dangerous_cells        = []
 
         dangerous_cells.extend(wrld_state["explosion cells"])
-        if(bomb_cell): dangerous_cells.append(bomb_cell)
 
-        if(bomb_cell and (bomb_time <= bomb_escape_time)):
-            for x in range(2 * explosion_range + 1):
-                if((x - explosion_range) != 0): dangerous_cells.append(((bomb_cell[0] + (x - explosion_range)),  bomb_cell[1]                          ))
+        if(bomb_cell): 
+            dangerous_cells.append(bomb_cell)
+        
+            if(bomb_time <= bomb_escape_time):
+                for x in range(1, explosion_range + 1): # Right of bomb                
+                    # Add cells only if in world, break otherwise
+                    if bomb_cell[0]+x < wrld.width(): dangerous_cells.append((bomb_cell[0]+x, bomb_cell[1]))
+                    else: break
+                    
+                    # Add dangerous cell if at wall (explosion lingers in broken wall), then stop
+                    if wrld.wall_at(bomb_cell[0] + x, bomb_cell[1]): break
+                        
+                for x in range(1, explosion_range + 1): # Left of bomb
+                    if bomb_cell[0]-x >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0] - x, bomb_cell[1]): break
+                    
+                for y in range(1, explosion_range + 1): # Below bomb
+                    if bomb_cell[1]+y < wrld.height(): dangerous_cells.append((bomb_cell[0], bomb_cell[1]+y))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]+y): break
 
-            for y in range(2 * explosion_range + 1):
-                if((y - explosion_range) != 0): dangerous_cells.append( (bomb_cell[0]                         , (bomb_cell[1] + (y - explosion_range))))
+                for y in range(1, explosion_range + 1): # Above bomb
+                    if bomb_cell[1]-y >= 0: dangerous_cells.append((bomb_cell[0], bomb_cell[1]-y))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]-y): break
 
         return(dangerous_cells)
 
@@ -175,16 +198,16 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns corresponding rewards for all events given
     def get_reward(self, events):
-        reward = -1
+        reward = -0.1
 
         for event in events:
             if  (event.tpe == event.BOMB_HIT_WALL)                   : reward += 5
-            elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 20
+            elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 2
             elif(
                  (event.tpe == event.BOMB_HIT_CHARACTER)          or
                  (event.tpe == event.CHARACTER_KILLED_BY_MONSTER)
-                )                                                    : return(-100, True)
-            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return(100, True)
+                )                                                    : return(-10, True)
+            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return( 10 , True)
 
         return(reward, False)
 
@@ -192,26 +215,35 @@ class TestCharacter(CharacterEntity):
     # hypth_wrld: hypothetical / copied world
     #
     # >>> returns feature values given hypothetical world state
-    def extract_features(self, hypth_wrld):
+    def extract_features(self, hypth_wrld, bomb_placed):
         hypth_wrld_state = self.get_world_state(hypth_wrld)
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
         character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
-        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld, hypth_wrld_state)
         lookup_grid      = self.get_lug(hypth_wrld, character_cell, dangerous_cells)
         features         = {}
 
-        features["bias"]                      = 1
-        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if   \
-                                                (exit_cell in lookup_grid)                        else \
-                                                (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1))
-        features["nearest monster distance"]  = 1
+        features["bias"]                      = 1.0
+        features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0))                                                          if   \
+                                                (exit_cell in lookup_grid)                                                                                 else \
+                                                (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1.0))
+        features["nearest monster distance"]  = 1.0
 
         for monster_cell in hypth_wrld_state["monster cells"]:
             if((monster_cell in lookup_grid) and ((min(lookup_grid[monster_cell] / max_distance, 1.0)) < features["nearest monster distance"])):
-                features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
+                monster_distance                     = lookup_grid[monster_cell]
+                features["nearest monster distance"] = min(monster_distance / max_distance, 1.0)
 
-        features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
+        features["bomb placed"]               = (1.0) if (bomb_placed) else (0.0)
+
+        features["in danger"]                 = 0.0
+
+        if(character_cell in dangerous_cells):
+            bomb_timer = hypth_wrld_state["bomb timer"]
+
+            if(bomb_timer is None): features["in danger"] = 1.0
+            else                  : features["in danger"] = 1.0 - (bomb_timer / hypth_wrld_state["bomb fuse"])
 
         return(features)
 
@@ -224,6 +256,7 @@ class TestCharacter(CharacterEntity):
                (self.weights["bias"]                     * feature_state["bias"]                    ) +
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
                (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
+               (self.weights["bomb placed"]              * feature_state["bomb placed"]             ) +
                (self.weights["in danger"]                * feature_state["in danger"]               )
               )
 
@@ -239,19 +272,23 @@ class TestCharacter(CharacterEntity):
             (hypth_wrld, hypth_events) = self.do_hypth_action(wrld, action)
             (reward    , done)         = self.get_reward(hypth_events)
 
-            if(done): action_scores.append((action, reward, None, reward))
+            if(hypth_wrld.me(self) is None): 
+                feature_state = self.extract_features(wrld, action[1])
 
-            else:
-                feature_state = self.extract_features(hypth_wrld)
-                q_state       = self.get_q_state(feature_state)
-                action_scores.append((action, q_state, feature_state, reward))
+                if(done and (reward < 0)): feature_state["in danger"]     = 1.0
+                else                     :feature_state["exit distance"]  = 0.0
+
+            else: feature_state = self.extract_features(hypth_wrld, action[1])
+
+            q_state = self.get_q_state(feature_state)
+            action_scores.append((action, q_state, feature_state, reward, done))
 
         return(action_scores)
 
     ###
     # scored_actions: list of scored actions [(action, q-state, features, reward), ...]
     #
-    # >>> returns chosen action taking epsilon value into account and breaking best-q-state scored actions randomly
+    # >>> returns chosen action taking epsilon value into account and breaking best-q-state scored action ties randomly
     def choose_action(self, scored_actions):
         pick_best_scored_action = random.random() > self.epsilon
         best_q_state            = float('-inf')
@@ -291,38 +328,51 @@ class TestCharacter(CharacterEntity):
     # done             : whether the character has died/won, or is still playing
     #
     # >>> updates in-game weights with previous features, q-state, and reward values, along with alpha and gamma
-    def update_weights(self, best_next_q_state, done):
-        self.prev_q_state = self.get_q_state(self.prev_feature_state)
-        delta             = self.prev_reward + ((0) if (done) else (self.gamma * best_next_q_state)) - self.prev_q_state
+    def update_weights(self, best_next_score):
+        delta = self.prev_reward + (self.gamma * best_next_score) - self.get_q_state(self.prev_feature_state)
 
         self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
         self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
         self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
+        self.weights["bomb placed"]              += self.alpha * delta * self.prev_feature_state["bomb placed"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
 
 # --- Main Loop --------------------------------------------------------------------------------------------------------------------------------------------------- #
 
     # baptism by fire
-    def do(self, wrld): 
-        next_best_q_state = float('-inf')
+    def do(self, wrld):
+        best_next_score = float('-inf')
 
-        if(self.weights is None): self.load_weights()
+        if(self.weights is None):
+            self.load_weights()
+            self.epoch += 1
 
         wrld_state     = self.get_world_state(wrld)
         legal_actions  = self.get_legal_actions(wrld, wrld_state)
         scored_actions = self.get_action_scores(wrld, legal_actions)
 
-        for scored_action in scored_actions: next_best_q_state = max(next_best_q_state, scored_action[1])
-
-        if(self.prev_feature_state is not None): self.update_weights(next_best_q_state, False)
+        if(self.prev_feature_state is not None):
+            for scored_action in scored_actions: best_next_score = max(best_next_score, scored_action[1])
+            self.update_weights(best_next_score)
 
         chosen_action = self.choose_action(scored_actions)
-
         (the_play, to_bomb_or_not_to_bomb) = chosen_action[0]
-        self.prev_feature_state            = chosen_action[2]
-        self.prev_reward                   = chosen_action[3]
+        feature_state                      = chosen_action[2]
+        reward                             = chosen_action[3]
+        done                               = chosen_action[4]
+
+        self.prev_feature_state = feature_state
+        self.prev_reward        = reward
+
+        if(done):
+            self.update_weights(0.0)
+            self.save_weights()
+
+        if(self.save_counter >= 5):
+            self.save_counter = 0
+            self.save_weights()
+
+        self.save_counter += 1
 
         self.move(the_play[0] - self.x, the_play[1] - self.y)
         if(to_bomb_or_not_to_bomb): self.place_bomb()
-
-        self.save_weights()

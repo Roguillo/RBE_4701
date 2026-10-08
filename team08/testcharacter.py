@@ -44,6 +44,8 @@ class TestCharacter(CharacterEntity):
     rows, cols = (8*19, 9)
     qValues = [[0] * 9 for _ in range(rows)]
 
+    monsterLastLocation = (9, 3)
+
 
 
     def find_exit(self, wrld):
@@ -59,6 +61,21 @@ class TestCharacter(CharacterEntity):
                 if(wrld.monsters_at(x, y)): return((x, y))
 
         return(None)
+
+    def find_monster_path(self, m, wrld):
+        path = []
+        (dx, dy) = (m.x - self.monsterLastLocation[0], m.y - self.monsterLastLocation[1])
+        for x in range(wrld.width()):
+            for y in range(wrld.height()):
+                for i in range(1,8):
+                    px = m.x + (dx*i)
+                    py = m.y + (dy*i)
+                    if not (0 <= px < wrld.width() and 0 <= py < wrld.height()) or wrld.wall_at(px, py):
+                        break
+                    else :
+                        path.append([px, py])
+
+        return(path)
 
     def find_bomb(self, wrld):
         for x in range(wrld.width()):
@@ -87,6 +104,39 @@ class TestCharacter(CharacterEntity):
                 else :
                     positions.append([px, py])
         return positions
+
+    def nextToCorner(self, m, wrld):
+        wallCount = 0
+        for dx in [-1, 1]:
+            # Loop through delta y
+            for dy in [-1, 1]:
+            # Avoid out-of-bound indexing
+                diagonal = (m[0] + dx, m[1] + dy)
+                horizontal = (m[0] + dx, m[1])
+                vertical = (m[0], m[1] + dy)
+
+                if ((0 > diagonal[0] or diagonal[0] >= 8) or (0 > diagonal[1] or diagonal[1] >= 18)) and not wrld.wall_at(diagonal[0], diagonal[1]):
+                    continue
+
+                # Horizontal side: either out of bounds or a wall
+                print(horizontal)
+                horizontal_blocked = (
+                    (0 > horizontal[0] or horizontal[0] >= 8) or
+                    wrld.wall_at(horizontal[0], horizontal[1])
+                )
+
+                # Vertical side: either out of bounds or a wall
+                print(vertical)
+                vertical_blocked = (
+                    (0 > vertical[1] or vertical[1] >= 18) or
+                    wrld.wall_at(vertical[0], vertical[1])
+                )
+
+                if horizontal_blocked and vertical_blocked:
+                    wallCount += 1                
+                        
+        return wallCount
+
 
     def numWallInRow(self, y, wrld):
         count = 0
@@ -146,9 +196,10 @@ class TestCharacter(CharacterEntity):
         
         if(bomb):
             p[bomb[1]][bomb[0]] = -30
+            bomb_object = wrld.bomb_at(bomb[0], bomb[1])
             exp = self.get_explosion_cells(wrld, bomb)
             for e in exp:
-                p[e[1]][e[0]] = -10
+                p[e[1]][e[0]] = -5*(6-bomb_object.timer)
 
 
         n = []
@@ -166,7 +217,7 @@ class TestCharacter(CharacterEntity):
                     mx = m.x + move[0]
                     my = m.y + move[1]
                     if 0 <= mx and mx < wrld.width() and 0 <= my and my < wrld.height() and p[my][mx] != -100:
-                        p[my][mx] = -90
+                        p[my][mx] = -100
 
                     mMoves2 = self.get_neighbors_8(wrld, (mx, my))
                     for move2 in mMoves2:
@@ -174,7 +225,7 @@ class TestCharacter(CharacterEntity):
                         my2 = move2[1]
                         
                         if (0 <= mx2 < wrld.width() and 0 <= my2 < wrld.height()) and p[my2][mx2] not in (-100, -90):
-                            p[my2][mx2] = -80
+                            p[my2][mx2] = -30
 
                         mMoves3 = self.get_neighbors_8(wrld, (mx2, my2))
                         for move3 in mMoves3:
@@ -182,14 +233,17 @@ class TestCharacter(CharacterEntity):
                             my3 = move3[1]
 
                             if (0 <= mx3 < wrld.width() and 0 <= my3 < wrld.height()) and p[my3][mx3] not in (-100, -90, -80):
-                                p[my3][mx3] = -50
+                                p[my3][mx3] = -15
                             mMoves4 = self.get_neighbors_8(wrld, (mx3, my3))
                             for move4 in mMoves4:
                                 mx4 = move4[0]
                                 my4 = move4[1]
     
                                 if (0 <= mx4 < wrld.width() and 0 <= my4 < wrld.height()) and p[my4][mx4] not in (-100, -90, -80, -50):
-                                    p[my4][mx4] = -10
+                                    p[my4][mx4] = -12
+            monster_path = self.find_monster_path(m, wrld)
+            for cell in monster_path:
+                p[cell[1]][cell[0]] = -30
             
         return p
 
@@ -229,14 +283,16 @@ class TestCharacter(CharacterEntity):
         for y in range(wrld.height()):
             for x in range(wrld.width()):
                 neigh = self.get_neighbors_8(wrld, (x, y))
-                bestMove = [x-neigh[0][0], y-neigh[0][1]]
-                bestValue = -float("inf")
-                for n in neigh:
-                    move = [n[0]-x, n[1]-y]
-                    val = values[n[1]][n[0]]
-                    if val > bestValue:
-                        bestValue = val
-                        bestMove = move
+                bestMove = [0, 0]
+                if neigh:
+                    bestMove = [x-neigh[0][0], y-neigh[0][1]]
+                    bestValue = -float("inf")
+                    for n in neigh:
+                        move = [n[0]-x, n[1]-y]
+                        val = values[n[1]][n[0]]
+                        if val > bestValue:
+                            bestValue = val
+                            bestMove = move
                 new_policy[y][x] = bestMove            
         return new_policy
 
@@ -287,6 +343,9 @@ class TestCharacter(CharacterEntity):
                         ) and (
                              wrld.exit_at (cell[0] + nx, cell[1] + ny) or
                              wrld.empty_at(cell[0] + nx, cell[1] + ny)
+                        ) and not(
+                             wrld.wall_at (cell[0] + nx, cell[1] + ny) or
+                             wrld.explosion_at(cell[0] + nx, cell[1] + ny)
                         )
                         ):
                             cells.append((cell[0] + nx, cell[1] + ny))
@@ -313,6 +372,9 @@ class TestCharacter(CharacterEntity):
                         ) and (
                                 wrld.exit_at (cell[0] + nx, cell[1] + ny) or
                                 wrld.empty_at(cell[0] + nx, cell[1] + ny)
+                        ) and not(
+                             wrld.wall_at (cell[0] + nx, cell[1] + ny) or
+                             wrld.explosion_at(cell[0] + nx, cell[1] + ny)
                         )
                         ):
                             cells.append((cell[0] + nx, cell[1] + ny))
@@ -513,6 +575,7 @@ class TestCharacter(CharacterEntity):
         exit_cell        = hypth_wrld_state["exit cell"]
         dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
         lookup_grid      = self.lookUpGrid(hypth_wrld, character_cell, dangerous_cells)
+        #num_of_walls     = self.nextToCorner(character_cell, hypth_wrld)
         features         = {}
 
         features["bias"]                      = 1
@@ -526,6 +589,7 @@ class TestCharacter(CharacterEntity):
                 features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
 
         features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
+        #features["next to corners"]                 = num_of_walls
 
         return(features)
     
@@ -539,7 +603,7 @@ class TestCharacter(CharacterEntity):
                (self.weights["bias"]                     * feature_state["bias"]                    ) +
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
                (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
-               (self.weights["in danger"]                * feature_state["in danger"]               )
+               (self.weights["in danger"]                * feature_state["in danger"]               ) #+ (self.weights["next to corners"]* feature_state["next to corners"])
               )
 
     ###
@@ -583,7 +647,7 @@ class TestCharacter(CharacterEntity):
             if best_scored_actions:
                 chosen_scored_action = random.choice(best_scored_actions)
             else:
-                pass
+                chosen_scored_action = ((0, 0), False), 0.0, None, 0
         else: chosen_scored_action = random.choice(scored_actions)
 
         return(chosen_scored_action)
@@ -616,6 +680,7 @@ class TestCharacter(CharacterEntity):
         self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
         self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
+        #self.weights["next to corners"]          += self.alpha * delta * self.prev_feature_state["next to corners"]
 
 
 
@@ -705,6 +770,8 @@ class TestCharacter(CharacterEntity):
                 if(to_bomb_or_not_to_bomb): self.place_bomb()
     
             self.save_weights()
+        if monster:
+            self.monsterLastLocation = monster
 
 
         

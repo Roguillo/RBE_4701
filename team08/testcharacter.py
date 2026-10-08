@@ -467,7 +467,7 @@ class TestCharacter(CharacterEntity):
         return(wrld_state)
 
 
-    def get_dangerous_cells(self, wrld_state):
+    def get_dangerous_cells(self, wrld_state, wrld):
         bomb_escape_time       = 5
 
         bomb_cell              = wrld_state["bomb cell"]
@@ -480,11 +480,35 @@ class TestCharacter(CharacterEntity):
         if(bomb_cell): dangerous_cells.append(bomb_cell)
 
         if(bomb_cell and (bomb_time <= bomb_escape_time)):
-            for x in range(2 * explosion_range + 1):
-                if((x - explosion_range) != 0): dangerous_cells.append(((bomb_cell[0] + (x - explosion_range)),  bomb_cell[1]))
+            if(bomb_cell and (bomb_time <= bomb_escape_time)):
+                dangerous_cells.append(bomb_cell)
+                
+                for x in range(explosion_range): # Right of bomb                
+                    # Add cells only if in world, break otherwise
+                    if bomb_cell[0]+x < wrld.width()-1: dangerous_cells.append((bomb_cell[0]+x, bomb_cell[1]))
+                    else: break
+                    
+                    # Add dangerous cell if at wall (explosion lingers in broken wall), then stop
+                    if wrld.wall_at(bomb_cell[0] + x, bomb_cell[1]): break
+                        
+                for x in range(explosion_range): # Left of bomb
+                    if bomb_cell[0]-x >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0] - x, bomb_cell[1]): break
+                    
+                for y in range(explosion_range): # Below bomb
+                    if bomb_cell[1]+y < wrld.height()-1: dangerous_cells.append((bomb_cell[0], bomb_cell[1]+y))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]+y): break
 
-            for y in range(2 * explosion_range + 1):
-                if((y - explosion_range) != 0): dangerous_cells.append( (bomb_cell[0], (bomb_cell[1] + (y - explosion_range))))
+                    
+                for y in range(explosion_range): # Above bomb
+                    if bomb_cell[1]-y >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]-y))
+                    else: break
+                    
+                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]-y): break
 
         for cell in monster_sight:
             dangerous_cells.append(cell)
@@ -573,7 +597,7 @@ class TestCharacter(CharacterEntity):
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
         character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
-        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state)
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state, hypth_wrld)
         lookup_grid      = self.lookUpGrid(hypth_wrld, character_cell, dangerous_cells)
         #num_of_walls     = self.nextToCorner(character_cell, hypth_wrld)
         features         = {}

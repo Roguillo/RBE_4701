@@ -1,10 +1,10 @@
 {
     "epoch": 0,
     "weights": {
-        "bias": 1.7961586400190206,
-        "exit distance": -4.981450670565758,
-        "nearest monster distance": 0.24835432897564247,
-        "in danger": -4.285254541692752,
+        "bias": -9.78772454301496,
+        "exit distance": -6.022224203272287,
+        "nearest monster distance": -11.335528854058337,
+        "in danger": -11.590618672260526,
         "next to corners": -2.9198243381464275,
         "monster approching": -2.9198243381464275
     }

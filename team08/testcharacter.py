@@ -256,7 +256,7 @@ class TestCharacter(CharacterEntity):
                                 my4 = move4[1]
     
                                 if (0 <= mx4 < wrld.width() and 0 <= my4 < wrld.height()) and p[my4][mx4] not in (-100, -90, -80, -50):
-                                    p[my4][mx4] = -10
+                                    p[my4][mx4] = -20
             
         return p
 
@@ -622,16 +622,21 @@ class TestCharacter(CharacterEntity):
                                                 (exit_cell in lookup_grid)                        else \
                                                 (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1))
         features["monster alive"]                 = (1) if (hypth_wrld_state["monster cells"]) else (0)
-        features["nearest monster distance"]  = 1
+        features["stupid monster distance"]  = 100
+        features["aggressive monster distance"]  = 100
 
         for monster_cell in hypth_wrld_state["monster cells"]:
-            if((monster_cell in lookup_grid) and ((min(lookup_grid[monster_cell] / max_distance, 1.0)) < features["nearest monster distance"])):
-                features["nearest monster distance"] = min(lookup_grid[monster_cell] / max_distance, 1.0)
+            m = hypth_wrld.monsters_at(monster_cell[0], monster_cell[1])[0]
+            if m:
+                if(m.name == "stupid"):
+                    features["stupid monster distance"] = self.euclidean_distance(character_cell, monster_cell)
+                else:
+                    features["aggressive monster distance"] = self.euclidean_distance(character_cell, monster_cell)
 
         features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
         #features["next to corners"]                 = num_of_walls
        
-        if (features["nearest monster distance"] < self.monsterLastDistance):
+        if (features["aggressive monster distance"] < self.monsterLastDistance):
             features["monster approching"]  = 1
             print("monster approching: 1")
         else:
@@ -650,7 +655,8 @@ class TestCharacter(CharacterEntity):
         return(
                (self.weights["bias"]                     * feature_state["bias"]                    ) +
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
-               (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
+               (self.weights["stupid monster distance"] * feature_state["stupid monster distance"]) +
+               (self.weights["aggressive monster distance"] * feature_state["aggressive monster distance"]) +
                (self.weights["in danger"]                * feature_state["in danger"]               ) +
                (self.weights["monster approching"]       * feature_state["monster approching"]               ) + 
                (self.weights["monster alive"]       *  feature_state["monster alive"])#+ (self.weights["next to corners"]* feature_state["next to corners"])
@@ -729,7 +735,8 @@ class TestCharacter(CharacterEntity):
         self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
         self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
         self.weights["monster alive"]       += self.alpha * delta * self.prev_feature_state["monster alive"]
-        self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
+        self.weights["stupid monster distance"] += self.alpha * delta * self.prev_feature_state["stupid monster distance"]
+        self.weights["aggressive monster distance"] += self.alpha * delta * self.prev_feature_state["aggressive monster distance"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
         #self.weights["next to corners"]         += self.alpha * delta * self.prev_feature_state["next to corners"]
         self.weights["monster approching"]       += self.alpha * delta * self.prev_feature_state["monster approching"]
@@ -770,15 +777,15 @@ class TestCharacter(CharacterEntity):
 
         if(self.numWallInRow(3, wrld) < 8):
             self.checkpoint = 0
-            goal = (4, 6)
+            goal = (self.x, 5)
 
         if(self.numWallInRow(7, wrld) < 8):
             self.checkpoint = 1
-            goal = (4, 10)
+            goal = (self.x, 9)
 
         if(self.numWallInRow(11, wrld) < 8):
             self.checkpoint = 2
-            goal = (4, 14)
+            goal = (self.x, 13)
 
         if(self.numWallInRow(15, wrld) < 8):
             self.checkpoint = 3
@@ -789,11 +796,11 @@ class TestCharacter(CharacterEntity):
 
         match self.checkpoint:
             case 0:
-                goal = (4, 6)
+                goal = (self.x, 5)
             case 1:
-                goal = (4, 10)
+                goal = (self.x, 9)
             case 2:
-                goal = (4, 14)
+                goal = (self.x, 13)
             case 3:
                 goal = exit
 
@@ -857,7 +864,7 @@ class TestCharacter(CharacterEntity):
             if monster:
                 self.monsterLastLocation = monster
                 if self.prev_feature_state:
-                    self.monsterLastDistance = self.prev_feature_state["nearest monster distance"]
+                    self.monsterLastDistance = self.prev_feature_state["aggressive monster distance"]
 
             if self.weights_are_valid():
                 self.backup_weights()

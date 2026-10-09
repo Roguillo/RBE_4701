@@ -759,15 +759,15 @@ class TestCharacter(CharacterEntity):
 
         if(self.numWallInRow(3, wrld) < 8):
             self.checkpoint = 0
-            goal = (4, 6)
+            goal = (self.x, 5)
 
         if(self.numWallInRow(7, wrld) < 8):
             self.checkpoint = 1
-            goal = (4, 10)
+            goal = (self.x, 9)
 
         if(self.numWallInRow(11, wrld) < 8):
             self.checkpoint = 2
-            goal = (4, 14)
+            goal = (self.x, 13)
 
         if(self.numWallInRow(15, wrld) < 8):
             self.checkpoint = 3
@@ -778,11 +778,11 @@ class TestCharacter(CharacterEntity):
 
         match self.checkpoint:
             case 0:
-                goal = (4, 6)
+                goal = (self.x, 5)
             case 1:
-                goal = (4, 10)
+                goal = (self.x, 9)
             case 2:
-                goal = (4, 14)
+                goal = (self.x, 13)
             case 3:
                 goal = exit
 

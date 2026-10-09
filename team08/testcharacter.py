@@ -215,7 +215,7 @@ class TestCharacter(CharacterEntity):
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
         character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
-        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state, hypth_wrld)
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld, hypth_wrld_state)
         lookup_grid      = self.get_lug(hypth_wrld, character_cell, dangerous_cells)
         features         = {}
 
@@ -398,9 +398,6 @@ class TestCharacter(CharacterEntity):
             self.save_weights()
 
         self.save_counter += 1
-
-        # NOTE: DEBUGGING FINAL MOVE
-        print(f"Moving to ({the_play})")
 
         self.move(the_play[0] - self.x, the_play[1] - self.y)
         if(to_bomb_or_not_to_bomb): self.place_bomb()

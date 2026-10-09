@@ -17,6 +17,7 @@ class TestCharacter(CharacterEntity):
     weights = []
 
     path_to_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights3.json")
+    path_to_weightBackups = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights3_backup.json")
 
     wE = 1
     wM = -2
@@ -45,6 +46,7 @@ class TestCharacter(CharacterEntity):
     qValues = [[0] * 9 for _ in range(rows)]
 
     monsterLastLocation = (9, 3)
+    monsterLastDistance = 1.0
 
 
 
@@ -575,16 +577,18 @@ class TestCharacter(CharacterEntity):
         for event in events:
             if  (event.tpe == event.BOMB_HIT_WALL)                   : reward += 5
             elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 20
-            elif(
-                 (event.tpe == event.BOMB_HIT_CHARACTER)          or
-                 (event.tpe == event.CHARACTER_KILLED_BY_MONSTER)
-                )                                                    : return(-100, True)
-            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return(100, True)
+            elif((event.tpe == event.BOMB_HIT_CHARACTER))            : return(-300, True)
+            elif((event.tpe == event.CHARACTER_KILLED_BY_MONSTER))   : return(-200, True)
+            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return(150, True)
 
         if wrld_state["character cell"]:
-            reward = -1/(wrld_state["character cell"][1] + 1)
+            reward = -1/((2*wrld_state["character cell"][1]) + 1)
             if wrld_state["character cell"] in wrld_state["monster sight cells"]:
                 reward -= 50
+
+        if wrld_state["monster cells"]:
+            reward = -5
+            
 
         return(reward, False)
 
@@ -606,6 +610,7 @@ class TestCharacter(CharacterEntity):
         features["exit distance"]             = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if   \
                                                 (exit_cell in lookup_grid)                        else \
                                                 (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1))
+        features["monster alive"]                 = (1) if (hypth_wrld_state["monster cells"]) else (0)
         features["nearest monster distance"]  = 1
 
         for monster_cell in hypth_wrld_state["monster cells"]:
@@ -614,6 +619,14 @@ class TestCharacter(CharacterEntity):
 
         features["in danger"]                 = (1) if (hypth_wrld_state["character cell"] in dangerous_cells) else (0)
         #features["next to corners"]                 = num_of_walls
+       
+        if (features["nearest monster distance"] < self.monsterLastDistance):
+            features["monster approching"]  = 1
+            print("monster approching: 1")
+        else:
+            features["monster approching"]  = 0
+            print("monster approching: 0")
+        
 
         return(features)
     
@@ -627,7 +640,9 @@ class TestCharacter(CharacterEntity):
                (self.weights["bias"]                     * feature_state["bias"]                    ) +
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
                (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
-               (self.weights["in danger"]                * feature_state["in danger"]               ) #+ (self.weights["next to corners"]* feature_state["next to corners"])
+               (self.weights["in danger"]                * feature_state["in danger"]               ) +
+               (self.weights["monster approching"]       * feature_state["monster approching"]               ) + 
+               (self.weights["monster alive"]       *  feature_state["monster alive"])#+ (self.weights["next to corners"]* feature_state["next to corners"])
               )
 
     ###
@@ -702,11 +717,38 @@ class TestCharacter(CharacterEntity):
 
         self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
         self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
+        self.weights["monster alive"]       += self.alpha * delta * self.prev_feature_state["monster alive"]
         self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
-        #self.weights["next to corners"]          += self.alpha * delta * self.prev_feature_state["next to corners"]
+        #self.weights["next to corners"]         += self.alpha * delta * self.prev_feature_state["next to corners"]
+        self.weights["monster approching"]       += self.alpha * delta * self.prev_feature_state["monster approching"]
+        
 
+    def weights_are_valid(self):
 
+        for value in self.weights.values():
+            if math.isnan(value):
+                return False
+            if math.isinf(value):
+                return False
+        return True
+
+    def backup_weights(self):
+        with open(self.path_to_weights, "r") as file:
+            data = json.load(file)
+
+        with open(self.path_to_weightBackups, "w") as file:
+            json.dump(data, file, indent=4)
+
+    def restore_weights(self):
+        with open(self.path_to_weightBackups, "r") as file:
+            data = json.load(file)
+
+        self.epoch = data["epoch"]
+        self.weights = data["weights"]
+
+        with open(self.path_to_weights, "w") as file:
+            json.dump(data, file, indent=4)
 
     
     def do(self, wrld):
@@ -755,7 +797,8 @@ class TestCharacter(CharacterEntity):
 
         print(path)
         print(goal)
-        if path[-1] == goal or (monster and path2monster[-1] == monster and monster[1] >= self.y):
+        
+        if path[-1] == goal or (monster and path2monster[-1] == monster and monster[1] >= self.y): 
             p = self.policyIteration(wrld, r, 0.9)
             bestMovement = p[self.y][self.x]
             if(goal == exit and len(path) <= 3):
@@ -774,13 +817,19 @@ class TestCharacter(CharacterEntity):
             next_best_q_state = float('-inf')
             
             if(self.weights is None): self.load_weights()
-    
+
+            
+            if not(self.weights_are_valid()):
+                self.restore_weights()
+                    
+
+
             wrld_state     = self.get_world_state(wrld)
             legal_actions  = self.get_legal_actions(wrld, wrld_state)
-            scored_actions = self.get_action_scores(wrld, legal_actions)
-    
+            scored_actions = self.get_action_scores(wrld,legal_actions)
+
             for scored_action in scored_actions: next_best_q_state = max(next_best_q_state, scored_action[1])
-    
+
             if(self.prev_feature_state is not None): self.update_weights(next_best_q_state, False)
 
             if scored_actions:
@@ -792,11 +841,14 @@ class TestCharacter(CharacterEntity):
         
                 self.move(the_play[0] - self.x, the_play[1] - self.y)
                 if(to_bomb_or_not_to_bomb): self.place_bomb()
-    
+
             self.save_weights()
-        if monster:
-            self.monsterLastLocation = monster
+            if monster:
+                self.monsterLastLocation = monster
+                if self.prev_feature_state:
+                    self.monsterLastDistance = self.prev_feature_state["nearest monster distance"]
 
-
+            if self.weights_are_valid():
+                self.backup_weights()
         
 

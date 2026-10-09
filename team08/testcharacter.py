@@ -95,8 +95,8 @@ class TestCharacter(CharacterEntity):
     # wrld_state: relevant data from wrld fetched with get_world_state()
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
-    def get_dangerous_cells(self, wrld, wrld_state,):
-        bomb_escape_time       = 10
+    def get_dangerous_cells(self, wrld_state, wrld):
+        bomb_escape_time       = 3
 
         bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
@@ -220,7 +220,7 @@ class TestCharacter(CharacterEntity):
         max_distance     = max(hypth_wrld.width(), hypth_wrld.height()) - 1
         character_cell   = hypth_wrld_state["character cell"]
         exit_cell        = hypth_wrld_state["exit cell"]
-        dangerous_cells  = self.get_dangerous_cells(hypth_wrld, hypth_wrld_state)
+        dangerous_cells  = self.get_dangerous_cells(hypth_wrld_state, hypth_wrld)
         lookup_grid      = self.get_lug(hypth_wrld, character_cell, dangerous_cells)
         features         = {}
 
@@ -373,6 +373,9 @@ class TestCharacter(CharacterEntity):
             self.save_weights()
 
         self.save_counter += 1
+
+        # NOTE: DEBUGGING FINAL MOVE
+        print(f"Moving to ({the_play})")
 
         self.move(the_play[0] - self.x, the_play[1] - self.y)
         if(to_bomb_or_not_to_bomb): self.place_bomb()

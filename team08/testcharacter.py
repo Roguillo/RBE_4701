@@ -12,15 +12,14 @@ from sensed_world import SensedWorld  # type: ignore
 
 
 class TestCharacter(CharacterEntity):
-
     path_to_weights = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights.json")
 
     epoch   = 0
     weights = None
 
-    gamma   = 0.9 # discount rate
-    alpha   = 0.1 # learning rate
-    epsilon = 0.1 # curiosity meter
+    gamma        = 0.9 # discount rate
+    alpha        = 0.1 # learning rate
+    epsilon      = 0.0 # curiosity meter
 
     # previous feature state, reward, and q-state
     prev_feature_state = None
@@ -45,7 +44,8 @@ class TestCharacter(CharacterEntity):
                 for ny in [-1, 0, 1]:
                     if (
                            (((cell[1] + ny >= 0) and (cell[1] + ny) < wrld.height())) and
-                        not(wrld.wall_at(cell[0] + nx, cell[1] + ny)                )
+                        not(wrld.wall_at(cell[0] + nx, cell[1] + ny)                ) and
+                        not(wrld.explosion_at(cell[0] + nx, cell[1] + ny)           )
                        ):
                         cells.append((cell[0] + nx, cell[1] + ny))
         return(cells)
@@ -96,44 +96,41 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
     def get_dangerous_cells(self, wrld, wrld_state,):
-        bomb_escape_time       = 10
-
-        bomb_cell              = wrld_state["bomb cell"]
-        bomb_time              = wrld_state["bomb timer"]
-        explosion_range        = wrld_state["explosion range"]
-        dangerous_cells        = []
+        bomb_cell       = wrld_state["bomb cell"]
+        explosion_range = wrld_state["explosion range"]
+        dangerous_cells = []
 
         dangerous_cells.extend(wrld_state["explosion cells"])
 
         if(bomb_cell): 
             dangerous_cells.append(bomb_cell)
         
-            if(bomb_time <= bomb_escape_time):
-                for x in range(1, explosion_range + 1): # Right of bomb                
-                    # Add cells only if in world, break otherwise
-                    if bomb_cell[0]+x < wrld.width(): dangerous_cells.append((bomb_cell[0]+x, bomb_cell[1]))
-                    else: break
-                    
-                    # Add dangerous cell if at wall (explosion lingers in broken wall), then stop
-                    if wrld.wall_at(bomb_cell[0] + x, bomb_cell[1]): break
+            for x in range(1, explosion_range + 1): # Right of bomb                
+                # Add cells only if in world, break otherwise
+                if bomb_cell[0] + x < wrld.width(): dangerous_cells.append((bomb_cell[0]+x, bomb_cell[1]))
+                else: break
+                
+                # Add dangerous cell if at wall (explosion lingers in broken wall), then stop
+                if wrld.wall_at(bomb_cell[0] + x, bomb_cell[1]): break
                         
-                for x in range(1, explosion_range + 1): # Left of bomb
-                    if bomb_cell[0]-x >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]))
-                    else: break
-                    
-                    if wrld.wall_at(bomb_cell[0] - x, bomb_cell[1]): break
-                    
-                for y in range(1, explosion_range + 1): # Below bomb
-                    if bomb_cell[1]+y < wrld.height(): dangerous_cells.append((bomb_cell[0], bomb_cell[1]+y))
-                    else: break
-                    
-                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]+y): break
+            for x in range(1, explosion_range + 1): # Left of bomb
+                if bomb_cell[0] - x >= 0: dangerous_cells.append((bomb_cell[0]-x, bomb_cell[1]))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0] - x, bomb_cell[1]): break
+                
+            for y in range(1, explosion_range + 1): # Below bomb
+                if bomb_cell[1] + y < wrld.height(): dangerous_cells.append((bomb_cell[0], bomb_cell[1]+y))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0], bomb_cell[1]+y): break
 
-                for y in range(1, explosion_range + 1): # Above bomb
-                    if bomb_cell[1]-y >= 0: dangerous_cells.append((bomb_cell[0], bomb_cell[1]-y))
-                    else: break
-                    
-                    if wrld.wall_at(bomb_cell[0], bomb_cell[1]-y): break
+                
+            for y in range(1, explosion_range + 1): # Above bomb
+                if bomb_cell[1] - y >= 0: dangerous_cells.append((bomb_cell[0], bomb_cell[1]-y))
+                else: break
+                
+                if wrld.wall_at(bomb_cell[0], bomb_cell[1]-y): break
 
         return(dangerous_cells)
 
@@ -167,9 +164,9 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns character's current legal actions, with actions being direction to move in and whether to place a bomb
     def get_legal_actions(self, wrld, wrld_state):
-        neighbors     = self.get_neighbors_of_8(wrld, wrld_state["character cell"])
-        bomb_ready    = wrld_state["bomb cell"] is None
-        legal_actions = []
+        neighbors       = self.get_neighbors_of_8(wrld, wrld_state["character cell"])
+        bomb_ready      = wrld_state["bomb cell"] is None
+        legal_actions   = []
 
         for neighbor in neighbors:
             if(neighbor != wrld_state["bomb cell"]):
@@ -203,11 +200,9 @@ class TestCharacter(CharacterEntity):
         for event in events:
             if  (event.tpe == event.BOMB_HIT_WALL)                   : reward += 5
             elif(event.tpe == event.BOMB_HIT_MONSTER)                : reward += 2
-            elif(
-                 (event.tpe == event.BOMB_HIT_CHARACTER)          or
-                 (event.tpe == event.CHARACTER_KILLED_BY_MONSTER)
-                )                                                    : return(-10, True)
-            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return( 10 , True)
+            elif(event.tpe == event.BOMB_HIT_CHARACTER)              : return(-20, True)
+            elif(event.tpe == event.CHARACTER_KILLED_BY_MONSTER)     : return(-15, True)
+            elif(event.tpe == event.CHARACTER_FOUND_EXIT)            : return( 10, True)
 
         return(reward, False)
 
@@ -235,8 +230,6 @@ class TestCharacter(CharacterEntity):
                 monster_distance                     = lookup_grid[monster_cell]
                 features["nearest monster distance"] = min(monster_distance / max_distance, 1.0)
 
-        features["bomb placed"]               = (1.0) if (bomb_placed) else (0.0)
-
         features["in danger"]                 = 0.0
 
         if(character_cell in dangerous_cells):
@@ -256,7 +249,6 @@ class TestCharacter(CharacterEntity):
                (self.weights["bias"]                     * feature_state["bias"]                    ) +
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
                (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
-               (self.weights["bomb placed"]              * feature_state["bomb placed"]             ) +
                (self.weights["in danger"]                * feature_state["in danger"]               )
               )
 
@@ -266,7 +258,9 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns a list of action scores with (action, q-state, features, reward)
     def get_action_scores(self, wrld, legal_actions):
-        action_scores = []
+        action_scores            = [] 
+        dumbass_action_scores    = []
+        abysmal_iq_action_scores = []
 
         for action in legal_actions:
             (hypth_wrld, hypth_events) = self.do_hypth_action(wrld, action)
@@ -280,10 +274,42 @@ class TestCharacter(CharacterEntity):
 
             else: feature_state = self.extract_features(hypth_wrld, action[1])
 
-            q_state = self.get_q_state(feature_state)
-            action_scores.append((action, q_state, feature_state, reward, done))
+            safe = not(done and (reward < 0))
+            if(safe and (hypth_wrld.me(self) is not None)):
+                hypth_wrld_state = self.get_world_state(hypth_wrld)
 
-        return(action_scores)
+                if(hypth_wrld_state["bomb cell"] is not None):
+                    nono_cells = set(self.get_dangerous_cells(hypth_wrld, hypth_wrld_state))
+                    the_future = SensedWorld.from_world(hypth_wrld)
+                    the_way    = {hypth_wrld_state["character cell"]}
+
+                    for tick in range(hypth_wrld_state["bomb fuse"] + 5):
+                        if((len(the_future.bombs) == 0) and (len(the_future.explosions) == 0)): break
+                        if(len(the_way) == 0): break
+
+                        (the_future, _) = the_future.next()
+                        fuckno_cells    = set()
+
+                        for explosion_object in the_future.explosions.values(): fuckno_cells.add((explosion_object.x, explosion_object.y))
+                        if(len(fuckno_cells) > 0): fuckno_cells = fuckno_cells | nono_cells
+
+                        next_way = set()
+                        for cell in the_way:
+                            for neighbor in self.get_neighbors_of_8(hypth_wrld, cell):
+                                if((neighbor not in fuckno_cells) and (neighbor != hypth_wrld_state["bomb cell"])): next_way.add(neighbor)
+
+                        the_way = next_way
+
+                    safe = len(the_way) > 0
+
+            q_state = self.get_q_state(feature_state)
+            if  (done and (reward < 0)): abysmal_iq_action_scores.append((action, q_state, feature_state, reward, done))
+            elif(safe)                  : action_scores.append((action, q_state, feature_state, reward, done))
+            else                        : dumbass_action_scores.append((action, q_state, feature_state, reward, done))
+
+        if  (action_scores)        : return(action_scores)
+        elif(dumbass_action_scores): return(dumbass_action_scores)
+        else                       : return(abysmal_iq_action_scores)
 
     ###
     # scored_actions: list of scored actions [(action, q-state, features, reward), ...]
@@ -334,7 +360,6 @@ class TestCharacter(CharacterEntity):
         self.weights["bias"]                     += self.alpha * delta * self.prev_feature_state["bias"]
         self.weights["exit distance"]            += self.alpha * delta * self.prev_feature_state["exit distance"]
         self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
-        self.weights["bomb placed"]              += self.alpha * delta * self.prev_feature_state["bomb placed"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
 
 # --- Main Loop --------------------------------------------------------------------------------------------------------------------------------------------------- #

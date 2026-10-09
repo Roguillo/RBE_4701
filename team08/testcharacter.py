@@ -20,7 +20,7 @@ class TestCharacter(CharacterEntity):
 
     gamma   = 0.9 # discount rate
     alpha   = 0.1 # learning rate
-    epsilon = 0.1 # curiosity meter
+    epsilon = 0.0 # curiosity meter
 
     # previous feature state, reward, and q-state
     prev_feature_state = None
@@ -49,6 +49,36 @@ class TestCharacter(CharacterEntity):
                        ):
                         cells.append((cell[0] + nx, cell[1] + ny))
         return(cells)
+
+    def get_neighboring_walls(self, wrld, cell):
+        cells = []
+
+        for nx in [-1, 0, 1]:
+            for ny in [-1, 0, 1]:
+
+                # Check if in bounds, if so add wall to the list of neighboring walls
+                if (cell[0] + nx >= 0) and (cell[0] + nx < wrld.width()) and (cell[1] + ny >= 0) and (cell[1] + ny < wrld.height()):
+                    if wrld.wall_at(cell[0] + nx, cell[1] + ny):
+                        cells.append((cell[0] + nx, cell[1] + ny))
+
+                # If out of bounds, add cell to the list of neighboring walls
+                else:
+                    cells.append((cell[0] + nx, cell[1] + ny))
+
+        return(cells)
+
+    def in_corner(self, wrld, cell):
+        neighbors = self.get_neighboring_walls(wrld, cell)
+        wall_count = len(neighbors)
+
+        return wall_count >= 4
+
+    def against_wall(self, wrld, cell):
+        neighbors = self.get_neighboring_walls(wrld, cell)
+        wall_count = len(neighbors)
+
+        return wall_count >= 1
+
 
     ###
     # wrld: the world
@@ -96,7 +126,7 @@ class TestCharacter(CharacterEntity):
     #
     # >>> returns current and imminent explosion cells; time left down to which a cell is considered unsafe can be set with bomb_escape_time
     def get_dangerous_cells(self, wrld_state, wrld):
-        bomb_escape_time       = 3
+        bomb_escape_time       = 2
 
         bomb_cell              = wrld_state["bomb cell"]
         bomb_time              = wrld_state["bomb timer"]
@@ -105,7 +135,7 @@ class TestCharacter(CharacterEntity):
 
         dangerous_cells.extend(wrld_state["explosion cells"])
 
-        if(bomb_cell): 
+        if(bomb_cell):
             dangerous_cells.append(bomb_cell)
         
             if(bomb_time <= bomb_escape_time):
@@ -245,6 +275,18 @@ class TestCharacter(CharacterEntity):
             if(bomb_timer is None): features["in danger"] = 1.0
             else                  : features["in danger"] = 1.0 - (bomb_timer / hypth_wrld_state["bomb fuse"])
 
+        features["path to exit"] = (min(lookup_grid[exit_cell] / max_distance, 1.0)) if (exit_cell in lookup_grid) else (min(max(abs(character_cell[0] - exit_cell[0]), abs(character_cell[1] - exit_cell[1])) / max_distance, 1.0))
+
+        features["in corner"] = (1.0) if (self.in_corner(hypth_wrld, character_cell)) else (0.0)
+
+        features["against wall"] = (1.0) if (self.against_wall(hypth_wrld, character_cell)) else (0.0)
+
+        features["monster chasing"] = 0.0
+        for monster_cell in hypth_wrld_state["monster cells"]:
+            if monster_cell in lookup_grid:
+                monster_distance                     = lookup_grid[monster_cell]
+                features["monster chasing"]          = (1.0) if (monster_distance <= 2.8) else (0.0)
+
         return(features)
 
     ###
@@ -257,7 +299,11 @@ class TestCharacter(CharacterEntity):
                (self.weights["exit distance"]            * feature_state["exit distance"]           ) +
                (self.weights["nearest monster distance"] * feature_state["nearest monster distance"]) +
                (self.weights["bomb placed"]              * feature_state["bomb placed"]             ) +
-               (self.weights["in danger"]                * feature_state["in danger"]               )
+               (self.weights["in danger"]                * feature_state["in danger"]               ) +
+               (self.weights["path to exit"]             * feature_state["path to exit"]            ) +
+               (self.weights["in corner"]                * feature_state["in corner"]               ) +
+               (self.weights["against wall"]             * feature_state["against wall"]            ) + 
+               (self.weights["monster chasing"]          * feature_state["monster chasing"]         )
               )
 
     ###
@@ -336,6 +382,10 @@ class TestCharacter(CharacterEntity):
         self.weights["nearest monster distance"] += self.alpha * delta * self.prev_feature_state["nearest monster distance"]
         self.weights["bomb placed"]              += self.alpha * delta * self.prev_feature_state["bomb placed"]
         self.weights["in danger"]                += self.alpha * delta * self.prev_feature_state["in danger"]
+        self.weights["path to exit"]             += self.alpha * delta * self.prev_feature_state["path to exit"]
+        self.weights["in corner"]                += self.alpha * delta * self.prev_feature_state["in corner"]
+        self.weights["against wall"]             += self.alpha * delta * self.prev_feature_state["against wall"]
+        self.weights["monster chasing"]          += self.alpha * delta * self.prev_feature_state["monster chasing"]
 
 # --- Main Loop --------------------------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -374,8 +424,8 @@ class TestCharacter(CharacterEntity):
 
         self.save_counter += 1
 
-        # NOTE: DEBUGGING FINAL MOVE
-        print(f"Moving to ({the_play})")
-
         self.move(the_play[0] - self.x, the_play[1] - self.y)
-        if(to_bomb_or_not_to_bomb): self.place_bomb()
+        # if(to_bomb_or_not_to_bomb): self.place_bomb()
+
+        # Test always placing bombs as frequently as possible
+        self.place_bomb()

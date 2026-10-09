@@ -1,10 +1,14 @@
 {
-    "epoch": 124,
+    "epoch": 962,
     "weights": {
-        "bias": 1.1245215008684575,
-        "exit distance": -1.764301796062143,
-        "nearest monster distance": 0.062419722050047644,
-        "bomb placed": -0.805532969137333,
-        "in danger": -5.906875370737552
+        "bias": 3.5449739778375187,
+        "exit distance": -8.974706934251596,
+        "nearest monster distance": 5.109268993793329,
+        "bomb placed": -0.04583148592597039,
+        "in danger": -7.378490763539464,
+        "path to exit": 4.743662305044425,
+        "in corner": -1.7232868225661186,
+        "against wall": -0.06284368725112296,
+        "monster chasing": -5.325423789711451
     }
 }

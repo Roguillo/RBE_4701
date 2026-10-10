@@ -16,36 +16,37 @@ from testcharacter import TestCharacter
 # Create the game
 random.seed(int(time.time()))
 
-gameCount = 20
+gameCount = 25
 winCount = 0
 bombDeaths = 0
 monsterDeaths = 0
 
-for i in range(gameCount):
-    g = Game.fromfile('map.txt')
-    g.add_monster(SelfPreservingMonster("aggressive", # name
-                                        "A",          # avatar
-                                        # 3, 5,        # position
-                                        3, 13,        # position
-                                        2             # detection range
-    ))
+# for i in range(gameCount):
 
-    # TODO Add your character
-    g.add_character(TestCharacter("me", # name
-                                "C",  # avatar
-                                0, 0  # position
-    ))
+g = Game.fromfile('map.txt')
+g.add_monster(SelfPreservingMonster("aggressive", # name
+                                    "A",          # avatar
+                                    # 3, 5,        # position
+                                    3, 13,        # position
+                                    2             # detection range
+))
 
-    # Run!
-    g.go(1)
+# TODO Add your character
+g.add_character(TestCharacter("me", # name
+                            "C",  # avatar
+                            0, 0  # position
+))
 
-    for event in g.events:
-        if event.tpe == 4:
-            winCount += 1
-        elif "killed itself" in str(event):
-            bombDeaths += 1
+# Run!
+g.go(1)
 
-print(f"Win/Loss Ratio: {winCount}/{gameCount - winCount}")
-print(f"Exit found: {winCount}")
-print(f"Bomb Deaths: {bombDeaths}")
-print(f"Monster Deaths: {gameCount - winCount - bombDeaths}")
+#     for event in g.events:
+#         if event.tpe == 4:
+#             winCount += 1
+#         elif "killed itself" in str(event):
+#             bombDeaths += 1
+
+# print(f"Win/Loss Ratio: {winCount}/{gameCount - winCount}")
+# print(f"Exit found: {winCount}")
+# print(f"Bomb Deaths: {bombDeaths}")
+# print(f"Monster Deaths: {gameCount - winCount - bombDeaths}")

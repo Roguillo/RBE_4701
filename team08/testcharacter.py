@@ -79,7 +79,6 @@ class TestCharacter(CharacterEntity):
 
         return wall_count >= 1
 
-
     ###
     # wrld: the world
     #
@@ -311,8 +310,15 @@ class TestCharacter(CharacterEntity):
     # legal_actions: actions that can be performed, not necessarily safe
     #
     # >>> returns a list of action scores with (action, q-state, features, reward)
+    ###
+    # wrld         : the world
+    # legal_actions: actions that can be performed, not necessarily safe
+    #
+    # >>> returns a list of action scores with (action, q-state, features, reward)
     def get_action_scores(self, wrld, legal_actions):
-        action_scores = []
+        action_scores            = [] 
+        dumbass_action_scores    = []
+        abysmal_iq_action_scores = []
 
         for action in legal_actions:
             (hypth_wrld, hypth_events) = self.do_hypth_action(wrld, action)
@@ -326,10 +332,42 @@ class TestCharacter(CharacterEntity):
 
             else: feature_state = self.extract_features(hypth_wrld, action[1])
 
-            q_state = self.get_q_state(feature_state)
-            action_scores.append((action, q_state, feature_state, reward, done))
+            safe = not(done and (reward < 0))
+            if(safe and (hypth_wrld.me(self) is not None)):
+                hypth_wrld_state = self.get_world_state(hypth_wrld)
 
-        return(action_scores)
+                if(hypth_wrld_state["bomb cell"] is not None):
+                    nono_cells = set(self.get_dangerous_cells(hypth_wrld_state, hypth_wrld))
+                    the_future = SensedWorld.from_world(hypth_wrld)
+                    the_way    = {hypth_wrld_state["character cell"]}
+
+                    for tick in range(hypth_wrld_state["bomb fuse"] + 5):
+                        if((len(the_future.bombs) == 0) and (len(the_future.explosions) == 0)): break
+                        if(len(the_way) == 0): break
+
+                        (the_future, _) = the_future.next()
+                        fuckno_cells    = set()
+
+                        for explosion_object in the_future.explosions.values(): fuckno_cells.add((explosion_object.x, explosion_object.y))
+                        if(len(fuckno_cells) > 0): fuckno_cells = fuckno_cells | nono_cells
+
+                        next_way = set()
+                        for cell in the_way:
+                            for neighbor in self.get_neighbors_of_8(hypth_wrld, cell):
+                                if((neighbor not in fuckno_cells) and (neighbor != hypth_wrld_state["bomb cell"])): next_way.add(neighbor)
+
+                        the_way = next_way
+
+                    safe = len(the_way) > 0
+
+            q_state = self.get_q_state(feature_state)
+            if  (done and (reward < 0)): abysmal_iq_action_scores.append((action, q_state, feature_state, reward, done))
+            elif(safe)                  : action_scores.append((action, q_state, feature_state, reward, done))
+            else                        : dumbass_action_scores.append((action, q_state, feature_state, reward, done))
+
+        if  (action_scores)        : return(action_scores)
+        elif(dumbass_action_scores): return(dumbass_action_scores)
+        else                       : return(abysmal_iq_action_scores)
 
     ###
     # scored_actions: list of scored actions [(action, q-state, features, reward), ...]
@@ -427,5 +465,5 @@ class TestCharacter(CharacterEntity):
         self.move(the_play[0] - self.x, the_play[1] - self.y)
         # if(to_bomb_or_not_to_bomb): self.place_bomb()
 
-        # Test always placing bombs as frequently as possible
+        # Always place bombs as frequently as possible
         self.place_bomb()

@@ -8,7 +8,7 @@ from game import Game
 
 # TODO This is your code!
 sys.path.insert(1, '../teamNN')
-from testcharacter import TestCharacter
+from testcharacter2 import TestCharacter
 
 
 # Create the game
@@ -19,7 +19,7 @@ c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
 )
-c.setVar(1)
+
 g.add_character(c)
 
 # Run!

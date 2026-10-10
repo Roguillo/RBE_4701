@@ -10,7 +10,7 @@ from monsters.selfpreserving_monster import SelfPreservingMonster
 
 # TODO This is your code!
 sys.path.insert(1, '../teamNN')
-from testcharacter import TestCharacter
+from testcharacter3 import TestCharacter
 
 # Create the game
 
@@ -26,7 +26,7 @@ c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
 )
-c.setVar(3)
+
 g.add_character(c)
 
 # Run!

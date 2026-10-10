@@ -10,7 +10,7 @@ from game import Game
 sys.path.insert(1, '../team08')
 
 # Uncomment this if you want the empty test character
-from testcharacter import TestCharacter
+from team08.testcharacter4 import TestCharacter
 
 # Uncomment this if you want the interactive character
 #from interactivecharacter import InteractiveCharacter

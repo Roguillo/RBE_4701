@@ -11,7 +11,7 @@ from monsters.selfpreserving_monster import SelfPreservingMonster
 
 # TODO This is your code!
 sys.path.insert(1, '../team08')
-from testcharacter import TestCharacter
+from team08.testcharacter4 import TestCharacter
 
 wins=0
 # Create the game

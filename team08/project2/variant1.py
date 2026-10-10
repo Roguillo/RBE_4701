@@ -15,10 +15,12 @@ from testcharacter import TestCharacter
 g = Game.fromfile('map.txt')
 
 # TODO Add your character
-g.add_character(TestCharacter("me", # name
+c = TestCharacter("me", # name
                               "C",  # avatar
                               0, 0  # position
-))
+)
+c.setVar(1)
+g.add_character(c)
 
 # Run!
-g.go()
+g.go(1)

@@ -1,0 +1,14 @@
+{
+    "epoch": 1300,
+    "weights": {
+        "bias": 2.8377431635184704,
+        "exit distance": -10.13907894784456,
+        "nearest monster distance": 0.39409884594580236,
+        "bomb placed": -0.04583148592597039,
+        "in danger": -8.343109986516705,
+        "path to exit": 5.831982439515342,
+        "in corner": -2.0410174357716238,
+        "against wall": -0.5346695471306316,
+        "monster chasing": -6.021567392961691
+    }
+}
